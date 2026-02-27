@@ -1,0 +1,23 @@
+# Node
+node_modules/
+npm-debug.log
+
+# React Native
+android/.gradle
+android/build
+android/app/build
+ios/build
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Environment
+.env
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
