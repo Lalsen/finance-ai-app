@@ -72,7 +72,7 @@ public class SMSReceiver extends BroadcastReceiver {
             try {
 
                 // ⚠️ Replace with your actual laptop IP
-                URL url = new URL("http://192.168.18.245:5000/add-transaction");
+                URL url = new URL("http://172.20.10.2:5000/add-transaction");
 
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 

@@ -1,6 +1,12 @@
 import psycopg2
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from datetime import datetime
+import psycopg2.extras
+from sklearn.linear_model import LinearRegression
+import numpy as np
+
+
 
 app = Flask(__name__)
 CORS(app)
@@ -12,7 +18,7 @@ CORS(app)
 DB_CONFIG = {
     "dbname": "finance_app_db",
     "user": "postgres",
-    "password": "lalsen1234",   # change if needed
+    "password": "lalsen1234",   
     "host": "localhost",
     "port": "5432"
 }
@@ -119,6 +125,139 @@ def get_transactions():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+
+# ==============================
+# Weekly analysis
+# ==============================
+
+
+@app.route("/weekly-analysis", methods=["GET"])
+def weekly_analysis():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
+        # Current week
+        cur.execute("""
+            SELECT category, SUM(amount) as total
+            FROM transactions
+            WHERE DATE_TRUNC('week', date) = DATE_TRUNC('week', CURRENT_DATE)
+            GROUP BY category
+        """)
+        current_week = {row["category"]: row["total"] for row in cur.fetchall()}
+
+        # Last week
+        cur.execute("""
+            SELECT category, SUM(amount) as total
+            FROM transactions
+            WHERE DATE_TRUNC('week', date) =
+                  DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 week')
+            GROUP BY category
+        """)
+        last_week = {row["category"]: row["total"] for row in cur.fetchall()}
+
+        cur.close()
+        conn.close()
+
+        nudges = []
+
+        for category in current_week:
+            current_value = current_week.get(category, 0)
+            last_value = last_week.get(category, 0)
+
+            if last_value > 0:
+                change_percent = ((current_value - last_value) / last_value) * 100
+
+                if change_percent > 20:
+                    nudges.append(
+                        f"⚠️ Your {category} spending increased by {round(change_percent, 1)}% this week."
+                    )
+                elif change_percent < -20:
+                    nudges.append(
+                        f"✅ Great! Your {category} spending decreased by {round(abs(change_percent), 1)}% this week."
+                    )
+
+        return jsonify({
+            "current_week": current_week,
+            "last_week": last_week,
+            "nudges": nudges
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+# ==============================
+# ML Prediction API
+# ==============================
+
+
+
+
+@app.route("/predict-next-week", methods=["GET"])
+def predict_next_week():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT DATE_TRUNC('week', date) as week,
+                   SUM(amount) as total
+            FROM transactions
+            GROUP BY week
+            ORDER BY week
+        """)
+
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        if len(rows) < 3:
+            return jsonify({"error": "Not enough data"}), 400
+
+        totals = [row[1] for row in rows]
+
+        X = []
+        y = []
+
+        for i in range(2, len(totals)):
+            prev_week = totals[i-1]
+            prev2_week = totals[i-2]
+            rolling_avg = (prev_week + prev2_week) / 2
+
+            X.append([i, prev_week, rolling_avg])
+            y.append(totals[i])
+
+        X = np.array(X)
+        y = np.array(y)
+
+        model = LinearRegression()
+        model.fit(X, y)
+
+        # Prepare next week features
+        last_week = totals[-1]
+        second_last_week = totals[-2]
+        rolling_avg = (last_week + second_last_week) / 2
+        next_index = len(totals)
+
+        next_features = np.array([[next_index, last_week, rolling_avg]])
+
+        prediction = model.predict(next_features)[0]
+
+        return jsonify({
+            "weekly_totals": totals,
+            "predicted_next_week_spending": round(float(prediction), 2)
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+    
+
+
 
 # ==============================
 # Spending Summary
