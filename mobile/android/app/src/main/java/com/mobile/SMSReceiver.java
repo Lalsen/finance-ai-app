@@ -1,4 +1,4 @@
-package com.mobile;   // ⚠️ Make sure this matches your package name
+package com.mobile;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -34,45 +34,49 @@ public class SMSReceiver extends BroadcastReceiver {
 
                     Log.d("SMS_RECEIVED", body);
 
-                    // 🔍 Extract amount using regex
-                    String amount = null;
-                    Pattern pattern = Pattern.compile("(\\d+)");
-                    Matcher matcher = pattern.matcher(body);
+                    // Extract amount
+                    String amount = extractAmount(body);
 
-                    if (matcher.find()) {
-                        amount = matcher.group(1);
-                    }
-
-                    // 🏪 Detect merchant
-                    String merchant = "Unknown";
-
-                    if (body.toLowerCase().contains("swiggy"))
-                        merchant = "Swiggy";
-                    else if (body.toLowerCase().contains("uber"))
-                        merchant = "Uber";
-                    else if (body.toLowerCase().contains("amazon"))
-                        merchant = "Amazon";
-                    else if (body.toLowerCase().contains("zomato"))
-                        merchant = "Zomato";
-                    else if (body.toLowerCase().contains("ola"))
-                        merchant = "Ola";
-
-                    // 🚀 Send to backend if valid
-                    if (amount != null && !merchant.equals("Unknown")) {
-                        sendToBackend(amount, merchant);
+                    if (amount != null) {
+                        sendToBackend(amount, body);
                     }
                 }
             }
         }
     }
 
-    private void sendToBackend(String amount, String merchant) {
+    // ------------------------------
+    // Extract transaction amount
+    // ------------------------------
+    private String extractAmount(String sms) {
+
+        try {
+
+            Pattern pattern = Pattern.compile("(\\d+\\.\\d{2}|\\d+)");
+            Matcher matcher = pattern.matcher(sms);
+
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+
+        } catch (Exception e) {
+            Log.e("AMOUNT_ERROR", e.toString());
+        }
+
+        return null;
+    }
+
+    // ------------------------------
+    // Send SMS data to backend
+    // ------------------------------
+    private void sendToBackend(String amount, String smsText) {
 
         new Thread(() -> {
+
             try {
 
-                // ⚠️ Replace with your actual laptop IP
-                URL url = new URL("http://172.20.10.2:5000/add-transaction");
+                // Replace with your backend IP
+                URL url = new URL("http://192.168.11.137:5000/process-sms");
 
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
@@ -80,8 +84,14 @@ public class SMSReceiver extends BroadcastReceiver {
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setDoOutput(true);
 
+                // Escape quotes safely (cannot modify smsText inside lambda)
+                String safeSmsText = smsText.replace("\"", "\\\"");
+
                 String json =
-                        "{\"amount\": " + amount + ", \"merchant\": \"" + merchant + "\"}";
+                        "{"
+                        + "\"amount\": " + amount + ","
+                        + "\"sms_text\": \"" + safeSmsText + "\""
+                        + "}";
 
                 OutputStream os = conn.getOutputStream();
                 os.write(json.getBytes());
@@ -95,8 +105,11 @@ public class SMSReceiver extends BroadcastReceiver {
                 conn.disconnect();
 
             } catch (Exception e) {
-                Log.e("SMS_ERROR", e.toString());
+
+                Log.e("SMS_BACKEND_ERROR", e.toString());
+
             }
+
         }).start();
     }
 }
