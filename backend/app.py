@@ -1,13 +1,12 @@
 import psycopg2
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from datetime import datetime
+from datetime import datetime, timedelta
 import psycopg2.extras
 from sklearn.linear_model import LinearRegression
 import numpy as np
 import joblib
 import re
-
 
 app = Flask(__name__)
 CORS(app)
@@ -17,7 +16,6 @@ CORS(app)
 # ==============================
 
 model = joblib.load("category_model.pkl")
-
 
 # ==============================
 # Database Configuration
@@ -34,7 +32,6 @@ DB_CONFIG = {
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
-
 # ==============================
 # Extract Merchant From SMS
 # ==============================
@@ -43,7 +40,6 @@ def extract_merchant(sms_text):
 
     sms_text = sms_text.lower()
 
-    # Try extracting merchant after "to"
     match = re.search(r"to\s([a-zA-Z\s]+)", sms_text)
 
     if match:
@@ -54,7 +50,6 @@ def extract_merchant(sms_text):
     merchant = re.sub(r'[^a-z ]', '', merchant)
 
     return merchant.strip()
-
 
 # ==============================
 # Clean SMS Text For ML
@@ -70,7 +65,6 @@ def clean_sms_text(text):
 
     return text.strip()
 
-
 # ==============================
 # Home Route
 # ==============================
@@ -78,7 +72,6 @@ def clean_sms_text(text):
 @app.route("/")
 def home():
     return "Backend Running"
-
 
 # ==============================
 # Process SMS (ML Categorization)
@@ -97,13 +90,13 @@ def process_sms():
         if not amount or not sms_text:
             return jsonify({"error": "Invalid data"}), 400
 
-        # Clean text for ML
         cleaned_text = clean_sms_text(sms_text)
 
-        # Predict category
         category = model.predict([cleaned_text])[0]
 
-        # Extract merchant
+        # Normalize category label
+        category = category.lower().capitalize()
+
         merchant = extract_merchant(sms_text)
 
         conn = get_db_connection()
@@ -128,9 +121,7 @@ def process_sms():
         })
 
     except Exception as e:
-
         return jsonify({"error": str(e)}), 500
-
 
 # ==============================
 # Get All Transactions
@@ -138,14 +129,18 @@ def process_sms():
 
 @app.route("/get-transactions", methods=["GET"])
 def get_transactions():
+
     try:
+
         conn = get_db_connection()
         cur = conn.cursor()
 
         cur.execute("SELECT * FROM transactions ORDER BY date DESC")
+
         rows = cur.fetchall()
 
         transactions = []
+
         for row in rows:
             transactions.append({
                 "id": row[0],
@@ -163,7 +158,6 @@ def get_transactions():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 # ==============================
 # Weekly Analysis
 # ==============================
@@ -176,7 +170,6 @@ def weekly_analysis():
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
-        # Current week
         cur.execute("""
             SELECT category, SUM(amount) as total
             FROM transactions
@@ -186,7 +179,6 @@ def weekly_analysis():
 
         current_week = {row["category"]: row["total"] for row in cur.fetchall()}
 
-        # Last week
         cur.execute("""
             SELECT category, SUM(amount) as total
             FROM transactions
@@ -230,7 +222,6 @@ def weekly_analysis():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 # ==============================
 # ML Prediction API
 # ==============================
@@ -247,6 +238,7 @@ def predict_next_week():
             SELECT DATE_TRUNC('week', date) as week,
                    SUM(amount) as total
             FROM transactions
+            WHERE date < DATE_TRUNC('week', CURRENT_DATE)
             GROUP BY week
             ORDER BY week
         """)
@@ -261,43 +253,25 @@ def predict_next_week():
 
         totals = [row[1] for row in rows]
 
-        X = []
-        y = []
+        # Last 3 weeks
+        last = totals[-1]
+        second = totals[-2]
+        third = totals[-3]
 
-        for i in range(2, len(totals)):
+        # Weighted Moving Average
+        prediction = (0.5 * last) + (0.3 * second) + (0.2 * third)
 
-            prev_week = totals[i-1]
-            prev2_week = totals[i-2]
-
-            rolling_avg = (prev_week + prev2_week) / 2
-
-            X.append([i, prev_week, rolling_avg])
-            y.append(totals[i])
-
-        X = np.array(X)
-        y = np.array(y)
-
-        model_lr = LinearRegression()
-        model_lr.fit(X, y)
-
-        last_week = totals[-1]
-        second_last_week = totals[-2]
-
-        rolling_avg = (last_week + second_last_week) / 2
-        next_index = len(totals)
-
-        next_features = np.array([[next_index, last_week, rolling_avg]])
-
-        prediction = model_lr.predict(next_features)[0]
+        last_week_date = rows[-1][0]
+        next_week_date = last_week_date + timedelta(days=7)
 
         return jsonify({
             "weekly_totals": totals,
+            "prediction_week": next_week_date.strftime("%Y-%m-%d"),
             "predicted_next_week_spending": round(float(prediction), 2)
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 # ==============================
 # Spending Summary
@@ -312,6 +286,7 @@ def spending_summary():
         cur = conn.cursor()
 
         cur.execute("SELECT SUM(amount) FROM transactions")
+
         total = cur.fetchone()[0] or 0
 
         cur.execute("""
@@ -337,7 +312,6 @@ def spending_summary():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 # ==============================
 # Run App

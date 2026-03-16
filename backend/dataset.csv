@@ -9,6 +9,10 @@ loaded,food
 student facility centre,others
 govardhan,others
 ally c antony,others
+IRCTC,transportation
+UTS,transportation
+irctc,transportation
+uts,transportation
 nykaa e retail limited,shopping
 haifa shameem,others
 gayathri nandakumar,others
@@ -130,7 +134,7 @@ nithin raj,others
 kubaba resto private,food
 mcdonalds,food 
 axis bank ltd,investment
-kuppivala fancy stores,shopping,
+kuppivala fancy stores,shopping
 kochi metro rail limited,transportation
 bagdad cafe,food 
 crystal hypermarket,grocery
@@ -201,8 +205,8 @@ vinod kumar karadia,others
 tanvy gupta,others
 c p jacob and sons,transportation
 sunil kumar yadav,others
-zomato,grocery 
-zomato limited,grocery 
+zomato,food 
+zomato limited,food 
 binu santhosh,others
 kunjumon k m,others
 mohammed ameer k p,others
@@ -441,3 +445,304 @@ coursera,others
 asha mariya,others
 wthdrl newfd ms daya joemon,others
 sonamangmoigma okaxis,others
+bigbasket daily,grocery
+reliance smart,grocery
+dmart,grocery
+more megastore,grocery
+spar hypermarket,grocery
+star bazaar,grocery
+nilgiris supermarket,grocery
+rathna stores,grocery
+magicsupermarket,grocery
+bbdaily grocery,grocery
+dunzo daily,grocery
+nature basket,grocery
+amazon seller services,shopping
+flipkart internet pvt ltd,shopping
+myntra designs,shopping
+ajio reliance retail,shopping
+tata cliq,shopping
+meesho online shopping,shopping
+max fashion,shopping
+pantaloons retail,shopping
+lifestyle international,shopping
+zara india,shopping
+h and m retail,shopping
+reliance digital,shopping
+croma electronics,shopping
+decathlon sports india,shopping
+urban ladder,shopping
+ikea india,shopping
+nykaa fashion,shopping
+zomato online,food
+swiggy india,food
+dominos pizza,food
+burger king,food
+pizza hut,food
+subway india,food
+starbucks coffee,food
+cafe coffee day,food
+faasos,food
+behrouz biryani,food
+eatclub,food
+haldirams,food
+paradise biryani,food
+kannur food court,food
+kfc online,food
+barbeque nation,food
+zerodha broking limited,investment
+upstox securities,investment
+angel one limited,investment
+sbi mutual fund sip,investment
+hdfc amc,investment
+axis mutual fund,investment
+icici prudential mf,investment
+kuvera investments,investment
+paytm money,investment
+lic premium payment,investment
+nps trust nsdl,investment
+ppf deposit sbi,investment
+epfo contribution,investment
+motilal oswal amc,investment
+uber india systems pvt ltd,transportation
+ola cabs,transportation
+rapido bike taxi,transportation
+makemytrip india pvt ltd,transportation
+goibibo online,transportation
+cleartrip,transportation
+yatra online,transportation
+irctc web ticketing,transportation
+redbus in,transportation
+paytm fastag,transportation
+icici fastag recharge,transportation
+indian oil corporation ltd,transportation
+bharat petroleum corp,transportation
+hindustan petroleum hpcl,transportation
+namma metro qr ticket,transportation
+kochi metro qr,transportation
+delhi metro smart card,transportation
+apollo pharmacy ltd,medical
+pharmeasy online,medical
+netmeds marketplace,medical
+tata 1mg healthcare,medical
+practo technologies,medical
+max healthcare,medical
+fortis hospitals,medical
+dr lal pathlabs,medical
+srl diagnostics,medical
+medplus pharmacy,medical
+apollo hospitals,medical
+aster dm healthcare,medical
+baby memorial hospital,medical
+bookmyshow tickets,entertainment
+netflix entertainment services,entertainment
+amazon prime subscription,entertainment
+disney plus hotstar,entertainment
+spotify premium,entertainment
+youtube premium,entertainment
+sony liv,entertainment
+zee5 subscription,entertainment
+pvr cinemas,entertainment
+inox movies ticket,entertainment
+steam games purchase,entertainment
+playstation network,entertainment
+epic games store,entertainment
+rent payment,others
+society maintenance,others
+bescom electricity bill,others
+kseb online payment,others
+msedcl power bill,others
+jio fiber broadband,others
+airtel xstream fiber,others
+sbi atm cash withdrawal,others
+hdfc bank atm,others
+icici bank charges,others
+credit card bill payment,others
+upi transfer to anil,others
+upi transfer to rahul,others
+sent to mom okaxis,others
+deposit from friend,others
+neft outward remittance,others
+rtgs transfer,others
+imps transfer,others
+uber trip kochi,transportation
+ola cab ride,transportation
+rapido bike ride,transportation
+indian oil petrol pump,transportation
+burger king meal,food
+pizza hut order,food
+apollo pharmacy,medical
+medplus pharmacy,medical
+amazon shopping,shopping
+flipkart order,shopping
+netflix,entertainment
+spotify music,entertainment
+groww sip investment,investment
+zerodha stock buy,investment
+UPI/SWIGGY/458921,food
+amazon seller services txn3821,shopping
+UPI TRANSFER TO RAHUL,others
+kochi metro qr ticket,transportation
+apollo pharmacy ltd pos,medical
+groww invest tech pvt ltd,investment
+bigbasket daily milk,grocery
+pvr cinemas ticket booking,entertainment
+zudio fashion store kochi,shopping
+ola cab ride payment,transportation
+bismi hypermart kakkanad,grocery
+dominos pizza online order,food
+spotify premium subscription,entertainment
+zerodha broking limited trade,investment
+upi transfer to anil,others
+medplus pharmacy india,medical
+pos amazon india shopping,shopping
+indian oil petrol pump pos,transportation
+cafe coffee day kakkanad,food
+fresh n carry supermarket,grocery
+youtube premium payment,entertainment
+lic premium payment txn,investment
+sent to mom okaxis,others
+kfc lulu mall kochi,food
+apollo hospitals india,medical
+uber india systems ride,transportation
+flipkart internet pvt ltd order,shopping
+reliance smart supermarket,grocery
+netflix entertainment services,entertainment
+icici prudential mutual fund,investment
+neft outward remittance,others
+bharat petroleum fuel station,transportation
+navya bake shop edappally,food
+aster hospital kochi payment,medical
+miniso lulu mall kochi,shopping
+bbdaily milk delivery,grocery
+steam games purchase,entertainment
+upstox securities trade,investment
+rtgs transfer payment,others
+uber auto ride kochi,transportation
+cakehut kalamassery pos,food
+docandmeds lifecare pvt ltd,medical
+nykaa e retail limited,shopping
+spar hypermarket kochi pos,grocery
+sony liv membership,entertainment
+axis mutual fund sip,investment
+bank service charges,others
+hpcl petrol bunk payment,transportation
+burger king meal order,food
+netmeds medicine delivery,medical
+pantaloons retail fashion,shopping
+dmart superstore txn3311,grocery
+amazon prime subscription,entertainment
+nps trust contribution,investment
+society maintenance charges,others
+irctc web ticketing txn,transportation
+pathirakozhi kakkanad order,food
+pharmeasy medicine order,medical
+westside retail store pos,shopping
+crystal hypermarket kochi,grocery
+bookmyshow movie tickets,entertainment
+kuvera investments txn,investment
+upi payment to friend,others
+rapido bike taxi ride,transportation
+wrapup shawarma hub,food
+medi plaza pharmacy pos,medical
+zara india fashion store,shopping
+margin free market edappally,grocery
+disney plus hotstar subscription,entertainment
+ppf deposit sbi txn,investment
+imps transfer txn,others
+makemytrip flight booking,transportation
+biryani chembu restaurant,food
+dr lal pathlabs test payment,medical
+ikea furniture purchase,shopping
+nature basket online,grocery
+playstation network purchase,entertainment
+motilal oswal amc sip,investment
+rent payment landlord,others
+fastag toll recharge,transportation
+subway sandwich store pos,food
+aster dm healthcare hospital,medical
+croma electronics india,shopping
+nilgiris supermarket pos,grocery
+music streaming subscription,entertainment
+google india digital services,investment
+deposit from friend upi,others
+redbus bus ticket booking,transportation
+pizza hut delivery order,food
+tata 1mg healthcare order,medical
+lifestyle international mall,shopping
+more megastore kochi,grocery
+pvr inox movie ticket,entertainment
+angel one trading account,investment
+cash withdrawal atm,others
+namma metro qr ticket,transportation
+taco bell lulu mall pos,food
+srl diagnostics lab txn,medical
+reliance digital store pos,shopping
+citimart supermarket pos,grocery
+epic games store purchase,entertainment
+sbi mutual fund sip,investment
+upi transfer to brother,others
+uber ride kochi,transportation
+starbucks coffee kochi pos,food
+fortis hospital payment,medical
+ajio reliance retail fashion,shopping
+ekart grocery delivery,grocery
+zee5 subscription txn,entertainment
+paytm money sip investment,investment
+personal transfer payment,others
+delhi metro smartcard,transportation
+popeyes chicken kochi,food
+pharma plus medical store,medical
+decathlon sports india,shopping
+family super market kochi,grocery
+lulu funtura arcade,entertainment
+epfo contribution account,investment
+upi transfer to sister,others
+chirayil fuels station pos,transportation
+mings wok chinese restaurant,food
+baby memorial hospital kochi,medical
+h and m retail india,shopping
+froos retail llp pos,grocery
+online gaming purchase,entertainment
+spring waters enterprises investment,investment
+upi payment to dad,others
+cleartrip flight reservation,transportation
+pandhal gourmet kitchen,food
+kinder hospital kochi,medical
+urban ladder furniture,shopping
+star bazaar supermarket,grocery
+concert ticket booking,entertainment
+phoenix enterprises investment,investment
+upi transfer to friend,others
+yatra travel booking,transportation
+calypzo cafe kakkanad,food
+hospital consultation payment,medical
+max fashion store,shopping
+magicsupermarket txn,grocery
+student empowerment event,entertainment
+nextbillion technology pvt ltd,investment
+upi payment personal,others
+uber trip kochi,transportation
+thaal kitchen restaurant,food
+medical lab test txn,medical
+sephora cosmetics india,shopping
+bismi hypermart kochi,grocery
+movie ticket online txn,entertainment
+one sigma technologies investment,investment
+credit card bill payment,others
+petrol bunk payment,transportation
+malaya restaurant kochi,food
+apollo pharmacy kochi,medical
+myntra designs online order,shopping
+fresh grocery delivery,grocery
+netflix subscription renewal,entertainment
+dc consulting services pvt ltd,investment
+hdfc atm cash withdrawal,others
+ola ride kochi,transportation
+umami restaurant kochi,food
+aster pharmacy kochi,medical
+amazon india order payment,shopping
+reliance smart grocery,grocery
+spotify premium music,entertainment
+zerodha stock purchase,investment
+neft transfer bank,others

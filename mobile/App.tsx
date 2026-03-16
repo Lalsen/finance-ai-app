@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, PermissionsAndroid } from 'react-native';
+import { PermissionsAndroid } from 'react-native';
 import axios from 'axios';
 import notifee from '@notifee/react-native';
+import { NavigationContainer } from "@react-navigation/native";
+import BottomTabs from "./src/navigation/BottomTabs";
+import HomeScreen from './src/screens/HomeScreen';
 
 interface CategoryItem {
   category: string;
@@ -27,7 +30,7 @@ export default function App() {
   const [nudges, setNudges] = useState<string[]>([]);
   const [prediction, setPrediction] = useState<number | null>(null);
 
-  const BASE_URL = "http://192.168.11.137:5000"; // keep your IP
+  const BASE_URL = "http://192.168.11.52:5000";
 
 
   // 🔥 Request SMS Permission
@@ -132,82 +135,14 @@ export default function App() {
 
 
   return (
-    <ScrollView style={{ padding: 20 }}>
+  <NavigationContainer>
+    <BottomTabs
+      summary={summary}
+      transactions={transactions}
+      nudges={nudges}
+      prediction={prediction}
+    />
+  </NavigationContainer>
+);
 
-      <Text style={{ fontSize: 24, fontWeight: 'bold' }}>
-        Finance Dashboard
-      </Text>
-
-
-      {/* 🔥 Weekly Nudges Section */}
-      {nudges.length > 0 && (
-        <View style={{ marginTop: 20, padding: 12, backgroundColor: '#fff3cd', borderRadius: 10 }}>
-          <Text style={{ fontSize: 18, fontWeight: 'bold' }}>
-            Weekly Insights
-          </Text>
-
-          {nudges.map((nudge, index) => (
-            <Text key={index} style={{ marginTop: 6 }}>
-              {nudge}
-            </Text>
-          ))}
-
-        </View>
-      )}
-
-
-      {/* 🔮 ML Prediction Section */}
-      {prediction !== null && (
-        <View style={{ marginTop: 20, padding: 15, backgroundColor: '#eef6ff', borderRadius: 10 }}>
-          <Text style={{ fontSize: 18, fontWeight: 'bold' }}>
-            🔮 Predicted Next Week Spending
-          </Text>
-
-          <Text style={{ fontSize: 22, marginTop: 8 }}>
-            ₹ {prediction.toFixed(2)}
-          </Text>
-        </View>
-      )}
-
-
-      {/* 📊 Summary Section */}
-      {summary && (
-        <>
-          <Text style={{ fontSize: 18, marginTop: 20 }}>
-            Total Spending: ₹ {summary.total_spending}
-          </Text>
-
-          <Text style={{ fontSize: 18, marginTop: 20 }}>
-            Category Breakdown:
-          </Text>
-
-          {summary.category_breakdown.map((item, index) => (
-            <Text key={index}>
-              {item.category}: ₹ {item.amount}
-            </Text>
-          ))}
-
-        </>
-      )}
-
-
-      {/* 💳 Transactions */}
-      <Text style={{ fontSize: 20, marginTop: 30 }}>
-        Transactions
-      </Text>
-
-      {transactions.map((txn) => (
-        <View key={txn.id} style={{ marginTop: 10 }}>
-          <Text>
-            {txn.merchant} - ₹ {txn.amount}
-          </Text>
-
-          <Text style={{ color: 'gray' }}>
-            {txn.category}
-          </Text>
-        </View>
-      ))}
-
-    </ScrollView>
-  );
 }
