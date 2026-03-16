@@ -5,11 +5,20 @@ from datetime import datetime
 import psycopg2.extras
 from sklearn.linear_model import LinearRegression
 import numpy as np
-
+import google.generativeai as genai
+import os
 
 
 app = Flask(__name__)
 CORS(app)
+
+# ==============================
+# Gemini API Configuration
+# ==============================
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyC6HpwE07wwxJCZ2e3dl96NH4N1ybAiOX4")
+genai.configure(api_key=GEMINI_API_KEY)
+gemini_model = genai.GenerativeModel("gemini-1.5-flash")
 
 # ==============================
 # Database Configuration
@@ -18,7 +27,7 @@ CORS(app)
 DB_CONFIG = {
     "dbname": "finance_app_db",
     "user": "postgres",
-    "password": "lalsen1234",   
+    "password": "Manyhead345",   
     "host": "localhost",
     "port": "5432"
 }
@@ -47,12 +56,103 @@ def categorize_transaction(merchant):
         return "Others"
 
 # ==============================
+# DB Context for AI Chatbot
+# ==============================
+
+def get_financial_context():
+    """Fetches relevant financial data from PostgreSQL to use as context for the AI."""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
+        # Total spending
+        cur.execute("SELECT SUM(amount) FROM transactions")
+        total = cur.fetchone()[0] or 0
+
+        # Category-wise breakdown
+        cur.execute("""
+            SELECT category, SUM(amount) as total
+            FROM transactions
+            GROUP BY category
+            ORDER BY total DESC
+        """)
+        categories = cur.fetchall()
+
+        # Recent transactions (last 10)
+        cur.execute("""
+            SELECT merchant, amount, category, date
+            FROM transactions
+            ORDER BY date DESC
+            LIMIT 10
+        """)
+        recent = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        # Build context string
+        context = f"User's Financial Summary:\n"
+        context += f"- Total spending: ₹{total:.2f}\n"
+        context += "\nSpending by Category:\n"
+        for row in categories:
+            context += f"  - {row['category']}: ₹{float(row['total']):.2f}\n"
+
+        context += "\nRecent Transactions (last 10):\n"
+        for row in recent:
+            context += f"  - {row['merchant']}: ₹{float(row['amount']):.2f} ({row['category']}) on {row['date']}\n"
+
+        return context
+
+    except Exception as e:
+        return f"(Could not retrieve financial data: {str(e)})"
+
+# ==============================
+# AI Chatbot Endpoint
+# ==============================
+
+@app.route("/chat", methods=["POST"])
+def chat():
+    try:
+        data = request.get_json()
+        if not data or "message" not in data:
+            return jsonify({"error": "Missing 'message' field in request body"}), 400
+
+        user_message = data["message"].strip()
+        if not user_message:
+            return jsonify({"error": "Message cannot be empty"}), 400
+
+        # Fetch financial context from PostgreSQL
+        financial_context = get_financial_context()
+
+        # Build a context-aware prompt for Gemini
+        system_prompt = (
+            "You are a helpful personal finance assistant for a mobile finance tracking app. "
+            "You help users understand their spending habits, answer financial questions, and give advice. "
+            "When answering, use the user's actual financial data provided below if it is relevant to the question. "
+            "If the question is not related to finance, still answer helpfully.\n\n"
+            f"{financial_context}\n\n"
+            f"User's question: {user_message}"
+        )
+
+        # Call Gemini API
+        response = gemini_model.generate_content(system_prompt)
+        reply = response.text
+
+        return jsonify({"reply": reply}), 200
+
+    except genai.types.generation_types.BlockedPromptException:
+        return jsonify({"reply": "I'm sorry, I couldn't process that request. Please try rephrasing your question."}), 200
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+# ==============================
 # Home Route
 # ==============================
 
 @app.route("/")
 def home():
     return "Backend Running"
+
 
 # ==============================
 # Add Transaction (AUTO CATEGORY)
