@@ -5,7 +5,7 @@ from datetime import datetime
 import psycopg2.extras
 from sklearn.linear_model import LinearRegression
 import numpy as np
-import google.generativeai as genai
+from groq import Groq
 import os
 
 
@@ -16,9 +16,8 @@ CORS(app)
 # Gemini API Configuration
 # ==============================
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyC6HpwE07wwxJCZ2e3dl96NH4N1ybAiOX4")
-genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "sk_evvseZGLu3dp0YtdGpSvWGdyb3FYfDcC7mmR52Bq64L0H0WU2mQ9")
+groq_client = Groq(api_key=GROQ_API_KEY)
 
 # ==============================
 # Database Configuration
@@ -134,14 +133,20 @@ def chat():
             f"User's question: {user_message}"
         )
 
-        # Call Gemini API
-        response = gemini_model.generate_content(system_prompt)
-        reply = response.text
+# Call Groq API
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "user", "content": system_prompt}
+            ]
+        )
+        reply = response.choices[0].message.content
 
         return jsonify({"reply": reply}), 200
 
-    except genai.types.generation_types.BlockedPromptException:
-        return jsonify({"reply": "I'm sorry, I couldn't process that request. Please try rephrasing your question."}), 200
+    except Exception as e:
+        if "blocked" in str(e).lower():
+            return jsonify({"reply": "I'm sorry, I couldn't process that request. Please try rephrasing your question."}), 200
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
