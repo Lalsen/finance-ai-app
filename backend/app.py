@@ -1,10 +1,8 @@
 import psycopg2
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from datetime import datetime, timedelta
+from datetime import timedelta, datetime
 import psycopg2.extras
-from sklearn.linear_model import LinearRegression
-import numpy as np
 import joblib
 import re
 
@@ -12,15 +10,13 @@ app = Flask(__name__)
 CORS(app)
 
 # ==============================
-# Load ML Categorization Model
+# Load ML Model
 # ==============================
-
 model = joblib.load("category_model.pkl")
 
 # ==============================
-# Database Configuration
+# Database Config
 # ==============================
-
 DB_CONFIG = {
     "dbname": "finance_app_db",
     "user": "postgres",
@@ -33,57 +29,69 @@ def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
 # ==============================
-# Extract Merchant From SMS
+# Extract Merchant
 # ==============================
-
 def extract_merchant(sms_text):
-
     sms_text = sms_text.lower()
-
     match = re.search(r"to\s([a-zA-Z\s]+)", sms_text)
 
-    if match:
-        merchant = match.group(1)
-    else:
-        merchant = "unknown"
-
+    merchant = match.group(1) if match else "unknown"
     merchant = re.sub(r'[^a-z ]', '', merchant)
 
     return merchant.strip()
 
 # ==============================
-# Clean SMS Text For ML
+# Clean SMS Text
 # ==============================
-
 def clean_sms_text(text):
-
     text = text.lower()
-
     text = re.sub(r'\d+', '', text)
     text = re.sub(r'[^a-z ]', ' ', text)
     text = re.sub(r'\s+', ' ', text)
-
     return text.strip()
 
 # ==============================
-# Home Route
+# Get Date Range Function
 # ==============================
+def get_date_range(range_type):
+    today = datetime.now().date()
 
+    if range_type == "this_week":
+        start = today - timedelta(days=today.weekday())
+        end = start + timedelta(days=7)
+
+    elif range_type == "last_week":
+        end = today - timedelta(days=today.weekday())
+        start = end - timedelta(days=7)
+
+    elif range_type == "this_month":
+        start = today.replace(day=1)
+        end = today
+
+    elif range_type == "all":
+        start = None
+        end = None
+
+    else:
+        end = today - timedelta(days=today.weekday())
+        start = end - timedelta(days=7)
+
+    return start, end
+
+# ==============================
+# Home
+# ==============================
 @app.route("/")
 def home():
     return "Backend Running"
 
 # ==============================
-# Process SMS (ML Categorization)
+# Process SMS
 # ==============================
-
 @app.route("/process-sms", methods=["POST"])
 def process_sms():
-
     try:
-
         data = request.json
-
         amount = data.get("amount")
         sms_text = data.get("sms_text")
 
@@ -91,24 +99,16 @@ def process_sms():
             return jsonify({"error": "Invalid data"}), 400
 
         cleaned_text = clean_sms_text(sms_text)
-
-        category = model.predict([cleaned_text])[0]
-
-        # Normalize category label
-        category = category.lower().capitalize()
-
+        category = model.predict([cleaned_text])[0].lower()
         merchant = extract_merchant(sms_text)
 
         conn = get_db_connection()
         cur = conn.cursor()
 
-        cur.execute(
-            """
+        cur.execute("""
             INSERT INTO transactions (amount, merchant, category)
             VALUES (%s, %s, %s)
-            """,
-            (amount, merchant, category)
-        )
+        """, (amount, merchant, category))
 
         conn.commit()
         cur.close()
@@ -124,31 +124,32 @@ def process_sms():
         return jsonify({"error": str(e)}), 500
 
 # ==============================
-# Get All Transactions
+# Get Transactions
 # ==============================
-
 @app.route("/get-transactions", methods=["GET"])
 def get_transactions():
-
     try:
-
         conn = get_db_connection()
         cur = conn.cursor()
 
-        cur.execute("SELECT * FROM transactions ORDER BY date DESC")
+        cur.execute("""
+            SELECT id, amount, merchant, category, date
+            FROM transactions
+            ORDER BY date DESC
+        """)
 
         rows = cur.fetchall()
 
-        transactions = []
-
-        for row in rows:
-            transactions.append({
+        transactions = [
+            {
                 "id": row[0],
                 "amount": row[1],
                 "merchant": row[2],
                 "category": row[3],
                 "date": row[4]
-            })
+            }
+            for row in rows
+        ]
 
         cur.close()
         conn.close()
@@ -159,78 +160,67 @@ def get_transactions():
         return jsonify({"error": str(e)}), 500
 
 # ==============================
-# Weekly Analysis
+# Spending Summary (SAFE + FLEXIBLE)
 # ==============================
-
-@app.route("/weekly-analysis", methods=["GET"])
-def weekly_analysis():
-
+@app.route("/spending-summary", methods=["GET"])
+def spending_summary():
     try:
+        range_type = request.args.get("range", "last_week")
+
+        start_date, end_date = get_date_range(range_type)
 
         conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cur = conn.cursor()
 
-        cur.execute("""
-            SELECT category, SUM(amount) as total
-            FROM transactions
-            WHERE DATE_TRUNC('week', date) = DATE_TRUNC('week', CURRENT_DATE)
-            GROUP BY category
-        """)
+        if start_date and end_date:
+            cur.execute("""
+                SELECT COALESCE(SUM(amount), 0)
+                FROM transactions
+                WHERE date >= %s AND date < %s
+            """, (start_date, end_date))
 
-        current_week = {row["category"]: row["total"] for row in cur.fetchall()}
+            total = cur.fetchone()[0]
 
-        cur.execute("""
-            SELECT category, SUM(amount) as total
-            FROM transactions
-            WHERE DATE_TRUNC('week', date) =
-                  DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 week')
-            GROUP BY category
-        """)
+            cur.execute("""
+                SELECT category, SUM(amount)
+                FROM transactions
+                WHERE date >= %s AND date < %s
+                GROUP BY category
+            """, (start_date, end_date))
 
-        last_week = {row["category"]: row["total"] for row in cur.fetchall()}
+        else:
+            cur.execute("SELECT COALESCE(SUM(amount), 0) FROM transactions")
+            total = cur.fetchone()[0]
+
+            cur.execute("""
+                SELECT category, SUM(amount)
+                FROM transactions
+                GROUP BY category
+            """)
+
+        category_data = cur.fetchall()
 
         cur.close()
         conn.close()
 
-        nudges = []
-
-        for category in current_week:
-
-            current_value = current_week.get(category, 0)
-            last_value = last_week.get(category, 0)
-
-            if last_value > 0:
-
-                change_percent = ((current_value - last_value) / last_value) * 100
-
-                if change_percent > 20:
-                    nudges.append(
-                        f"⚠️ Your {category} spending increased by {round(change_percent,1)}% this week."
-                    )
-
-                elif change_percent < -20:
-                    nudges.append(
-                        f"✅ Great! Your {category} spending decreased by {round(abs(change_percent),1)}% this week."
-                    )
-
         return jsonify({
-            "current_week": current_week,
-            "last_week": last_week,
-            "nudges": nudges
+            "range": range_type,
+            "total_spending": total,
+            "category_breakdown": [
+                {"category": row[0], "amount": row[1]}
+                for row in category_data
+            ]
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 # ==============================
-# ML Prediction API
+# Prediction (unchanged)
 # ==============================
-
 @app.route("/predict-next-week", methods=["GET"])
 def predict_next_week():
-
     try:
-
         conn = get_db_connection()
         cur = conn.cursor()
 
@@ -244,7 +234,6 @@ def predict_next_week():
         """)
 
         rows = cur.fetchall()
-
         cur.close()
         conn.close()
 
@@ -253,19 +242,11 @@ def predict_next_week():
 
         totals = [row[1] for row in rows]
 
-        # Last 3 weeks
-        last = totals[-1]
-        second = totals[-2]
-        third = totals[-3]
+        prediction = (0.5 * totals[-1]) + (0.3 * totals[-2]) + (0.2 * totals[-3])
 
-        # Weighted Moving Average
-        prediction = (0.5 * last) + (0.3 * second) + (0.2 * third)
-
-        last_week_date = rows[-1][0]
-        next_week_date = last_week_date + timedelta(days=7)
+        next_week_date = rows[-1][0] + timedelta(days=7)
 
         return jsonify({
-            "weekly_totals": totals,
             "prediction_week": next_week_date.strftime("%Y-%m-%d"),
             "predicted_next_week_spending": round(float(prediction), 2)
         })
@@ -274,48 +255,7 @@ def predict_next_week():
         return jsonify({"error": str(e)}), 500
 
 # ==============================
-# Spending Summary
+# Run
 # ==============================
-
-@app.route("/spending-summary", methods=["GET"])
-def spending_summary():
-
-    try:
-
-        conn = get_db_connection()
-        cur = conn.cursor()
-
-        cur.execute("SELECT SUM(amount) FROM transactions")
-
-        total = cur.fetchone()[0] or 0
-
-        cur.execute("""
-            SELECT category, SUM(amount)
-            FROM transactions
-            GROUP BY category
-        """)
-
-        category_data = cur.fetchall()
-
-        summary = {
-            "total_spending": total,
-            "category_breakdown": [
-                {"category": row[0], "amount": row[1]}
-                for row in category_data
-            ]
-        }
-
-        cur.close()
-        conn.close()
-
-        return jsonify(summary)
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# ==============================
-# Run App
-# ==============================
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
