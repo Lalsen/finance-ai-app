@@ -30,58 +30,39 @@ export default function App() {
   const [prediction, setPrediction] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // ✅ Use emulator-safe URL if needed
   const BASE_URL = "http://192.168.1.34:5000";
-  // const BASE_URL = "http://10.0.2.2:5000";
 
-  // 🔥 Request SMS Permission
+  // 🔐 SMS Permission
   const requestSMSPermission = async () => {
     try {
-      const granted = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.RECEIVE_SMS,
-        {
-          title: "SMS Permission",
-          message: "App needs access to SMS to detect transactions",
-          buttonPositive: "OK"
-        }
+      await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.RECEIVE_SMS
       );
-
-      console.log(
-        granted === PermissionsAndroid.RESULTS.GRANTED
-          ? "✅ SMS Permission Granted"
-          : "❌ SMS Permission Denied"
-      );
-
     } catch (err) {
-      console.warn("Permission Error:", err);
+      console.warn(err);
     }
   };
 
-  // 🔔 Show Notification
+  // 🔔 Notification
   const showNotification = async (message: string) => {
-    try {
-      await notifee.requestPermission();
+    await notifee.requestPermission();
 
-      const channelId = await notifee.createChannel({
-        id: 'finance',
-        name: 'Finance Alerts',
-      });
+    const channelId = await notifee.createChannel({
+      id: 'finance',
+      name: 'Finance Alerts',
+    });
 
-      await notifee.displayNotification({
-        title: 'Smart Finance Insight',
-        body: message,
-        android: {
-          channelId,
-          smallIcon: 'ic_launcher',
-        },
-      });
-
-    } catch (err) {
-      console.log("Notification Error:", err);
-    }
+    await notifee.displayNotification({
+      title: 'Smart Finance Insight',
+      body: message,
+      android: {
+        channelId,
+        smallIcon: 'ic_launcher',
+      },
+    });
   };
 
-  // 📊 Fetch Summary + Transactions
+  // 📊 Fetch Data
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -90,9 +71,6 @@ export default function App() {
         axios.get(`${BASE_URL}/spending-summary`),
         axios.get(`${BASE_URL}/get-transactions`)
       ]);
-
-      console.log("📊 SUMMARY:", summaryRes.data);
-      console.log("💳 TRANSACTIONS:", transactionRes.data);
 
       setSummary(summaryRes.data || null);
       setTransactions(transactionRes.data || []);
@@ -104,14 +82,10 @@ export default function App() {
     }
   };
 
-  // 🧠 Fetch Weekly Nudges
+  // 🧠 Nudges
   const fetchNudges = async () => {
     try {
       const response = await axios.get(`${BASE_URL}/weekly-analysis`);
-
-      console.log("🧠 WEEKLY:", response.data);
-
-      // Safe fallback
       const weeklyNudges = response.data.nudges || [];
 
       setNudges(weeklyNudges);
@@ -125,34 +99,21 @@ export default function App() {
     }
   };
 
-  // 🔮 Fetch Prediction
+  // 🔮 Prediction
   const fetchPrediction = async () => {
     try {
       const response = await axios.get(`${BASE_URL}/predict-next-week`);
-
-      console.log("🔮 PREDICTION:", response.data);
-
       setPrediction(response.data.predicted_next_week_spending || null);
-
     } catch (error) {
       console.log("❌ PREDICTION ERROR:", error);
     }
   };
 
-  // 🚀 Initial Load + Auto Refresh
   useEffect(() => {
     requestSMSPermission();
-
     fetchData();
     fetchNudges();
     fetchPrediction();
-
-    // 🔁 Auto refresh every 10 sec
-    const interval = setInterval(() => {
-      fetchData();
-    }, 10000);
-
-    return () => clearInterval(interval);
   }, []);
 
   return (
