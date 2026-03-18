@@ -54,7 +54,7 @@ model = joblib.load("category_model.pkl")
 DB_CONFIG = {
     "dbname": "finance_app_db",
     "user": "postgres",
-    "password": "lalsen1234",
+    "password": DB_PASSWORD,
     "host": "localhost",
     "port": "5432"
 }
