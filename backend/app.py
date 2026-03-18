@@ -5,9 +5,19 @@ from datetime import timedelta, datetime
 import psycopg2.extras
 import joblib
 import re
+from sklearn.linear_model import LinearRegression
+import numpy as np
+from groq import Groq
+import os
 
 app = Flask(__name__)
 CORS(app)
+
+# ==============================
+# Groq API Configuration
+# ==============================
+
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")groq_client = Groq(api_key=GROQ_API_KEY)
 
 # ==============================
 # Load ML Model
@@ -39,6 +49,101 @@ def extract_merchant(sms_text):
     merchant = re.sub(r'[^a-z ]', '', merchant)
 
     return merchant.strip()
+
+# ==============================
+# DB Context for AI Chatbot
+# ==============================
+
+def get_financial_context():
+    """Fetches relevant financial data from PostgreSQL to use as context for the AI."""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
+        # Total spending
+        cur.execute("SELECT SUM(amount) FROM transactions")
+        total = cur.fetchone()[0] or 0
+
+        # Category-wise breakdown
+        cur.execute("""
+            SELECT category, SUM(amount) as total
+            FROM transactions
+            GROUP BY category
+            ORDER BY total DESC
+        """)
+        categories = cur.fetchall()
+
+        # Recent transactions (last 10)
+        cur.execute("""
+            SELECT merchant, amount, category, date
+            FROM transactions
+            ORDER BY date DESC
+            LIMIT 10
+        """)
+        recent = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        # Build context string
+        context = f"User's Financial Summary:\n"
+        context += f"- Total spending: ₹{total:.2f}\n"
+        context += "\nSpending by Category:\n"
+        for row in categories:
+            context += f"  - {row['category']}: ₹{float(row['total']):.2f}\n"
+
+        context += "\nRecent Transactions (last 10):\n"
+        for row in recent:
+            context += f"  - {row['merchant']}: ₹{float(row['amount']):.2f} ({row['category']}) on {row['date']}\n"
+
+        return context
+
+    except Exception as e:
+        return f"(Could not retrieve financial data: {str(e)})"
+
+# ==============================
+# AI Chatbot Endpoint
+# ==============================
+
+@app.route("/chat", methods=["POST"])
+def chat():
+    try:
+        data = request.get_json()
+        if not data or "message" not in data:
+            return jsonify({"error": "Missing 'message' field in request body"}), 400
+
+        user_message = data["message"].strip()
+        if not user_message:
+            return jsonify({"error": "Message cannot be empty"}), 400
+
+        # Fetch financial context from PostgreSQL
+        financial_context = get_financial_context()
+
+        # Build a context-aware prompt for Groq
+        system_prompt = (
+            "You are a helpful personal finance assistant for a mobile finance tracking app. "
+            "You help users understand their spending habits, answer financial questions, and give advice. "
+            "When answering, use the user's actual financial data provided below if it is relevant to the question. "
+            "If the question is not related to finance, still answer helpfully.\n\n"
+            f"{financial_context}\n\n"
+            f"User's question: {user_message}"
+        )
+
+        # Call Groq API
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "user", "content": system_prompt}
+            ]
+        )
+        reply = response.choices[0].message.content
+
+        return jsonify({"reply": reply}), 200
+
+    except Exception as e:
+        if "blocked" in str(e).lower():
+            return jsonify({"reply": "I'm sorry, I couldn't process that request. Please try rephrasing your question."}), 200
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 # ==============================
 # Clean SMS Text

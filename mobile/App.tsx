@@ -30,7 +30,7 @@ export default function App() {
   const [nudges, setNudges] = useState<string[]>([]);
   const [prediction, setPrediction] = useState<number | null>(null);
 
-  const BASE_URL = "http://192.168.11.52:5000";
+  const BASE_URL = "http://192.168.1.34:5000";
 
 
   // 🔥 Request SMS Permission
