@@ -5,62 +5,54 @@ from datetime import timedelta, datetime
 import psycopg2.extras
 import joblib
 import re
-from sklearn.linear_model import LinearRegression
 import numpy as np
 from groq import Groq
 import os
 from dotenv import load_dotenv
+import urllib.parse as urlparse
+
 load_dotenv()
-
-
 
 app = Flask(__name__)
 CORS(app)
 
-
-
 # ==============================
-# Environment Variables (SECURE)
+# Environment Variables
 # ==============================
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not GROQ_API_KEY:
-    raise ValueError("❌ GROQ_API_KEY not set in environment variables")
+    raise ValueError("❌ GROQ_API_KEY not set")
 
-if not DB_PASSWORD:
-    raise ValueError("❌ DB_PASSWORD not set in environment variables")
+if not DATABASE_URL:
+    raise ValueError("❌ DATABASE_URL not set")
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-
-
-
 # ==============================
-# Groq API Configuration
+# Parse Neon DB URL
 # ==============================
 
+url = urlparse.urlparse(DATABASE_URL)
 
+DB_CONFIG = {
+    "dbname": url.path[1:],
+    "user": url.username,
+    "password": url.password,
+    "host": url.hostname,
+    "port": url.port,
+    "sslmode": "require"
+}
+
+def get_db_connection():
+    return psycopg2.connect(**DB_CONFIG)
 
 # ==============================
 # Load ML Model
 # ==============================
 model = joblib.load("category_model.pkl")
-
-# ==============================
-# Database Config
-# ==============================
-DB_CONFIG = {
-    "dbname": "finance_app_db",
-    "user": "postgres",
-    "password": DB_PASSWORD,
-    "host": "localhost",
-    "port": "5432"
-}
-
-def get_db_connection():
-    return psycopg2.connect(**DB_CONFIG)
 
 # ==============================
 # Extract Merchant
@@ -75,20 +67,16 @@ def extract_merchant(sms_text):
     return merchant.strip()
 
 # ==============================
-# DB Context for AI Chatbot
+# Financial Context for Chatbot
 # ==============================
-
 def get_financial_context():
-    """Fetches relevant financial data from PostgreSQL to use as context for the AI."""
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
-        # Total spending
         cur.execute("SELECT SUM(amount) FROM transactions")
         total = cur.fetchone()[0] or 0
 
-        # Category-wise breakdown
         cur.execute("""
             SELECT category, SUM(amount) as total
             FROM transactions
@@ -97,7 +85,6 @@ def get_financial_context():
         """)
         categories = cur.fetchall()
 
-        # Recent transactions (last 10)
         cur.execute("""
             SELECT merchant, amount, category, date
             FROM transactions
@@ -109,68 +96,60 @@ def get_financial_context():
         cur.close()
         conn.close()
 
-        # Build context string
         context = f"User's Financial Summary:\n"
         context += f"- Total spending: ₹{total:.2f}\n"
+
         context += "\nSpending by Category:\n"
         for row in categories:
             context += f"  - {row['category']}: ₹{float(row['total']):.2f}\n"
 
-        context += "\nRecent Transactions (last 10):\n"
+        context += "\nRecent Transactions:\n"
         for row in recent:
             context += f"  - {row['merchant']}: ₹{float(row['amount']):.2f} ({row['category']}) on {row['date']}\n"
 
         return context
 
     except Exception as e:
-        return f"(Could not retrieve financial data: {str(e)})"
+        return f"(Error fetching data: {str(e)})"
 
 # ==============================
-# AI Chatbot Endpoint
+# Chatbot Endpoint
 # ==============================
-
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         data = request.get_json()
+
         if not data or "message" not in data:
-            return jsonify({"error": "Missing 'message' field in request body"}), 400
+            return jsonify({"error": "Missing message"}), 400
 
         user_message = data["message"].strip()
+
         if not user_message:
-            return jsonify({"error": "Message cannot be empty"}), 400
+            return jsonify({"error": "Empty message"}), 400
 
-        # Fetch financial context from PostgreSQL
-        financial_context = get_financial_context()
+        context = get_financial_context()
 
-        # Build a context-aware prompt for Groq
-        system_prompt = (
-            "You are a helpful personal finance assistant for a mobile finance tracking app. "
-            "You help users understand their spending habits, answer financial questions, and give advice. "
-            "When answering, use the user's actual financial data provided below if it is relevant to the question. "
-            "If the question is not related to finance, still answer helpfully.\n\n"
-            f"{financial_context}\n\n"
-            f"User's question: {user_message}"
-        )
+        prompt = f"""
+        You are a helpful finance assistant.
 
-        # Call Groq API
+        {context}
+
+        User question: {user_message}
+        """
+
         response = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "user", "content": system_prompt}
-            ]
+            messages=[{"role": "user", "content": prompt}]
         )
-        reply = response.choices[0].message.content
 
-        return jsonify({"reply": reply}), 200
+        return jsonify({"reply": response.choices[0].message.content})
 
     except Exception as e:
-        if "blocked" in str(e).lower():
-            return jsonify({"reply": "I'm sorry, I couldn't process that request. Please try rephrasing your question."}), 200
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
 # ==============================
-# Clean SMS Text
+# Clean SMS
 # ==============================
 def clean_sms_text(text):
     text = text.lower()
@@ -180,7 +159,7 @@ def clean_sms_text(text):
     return text.strip()
 
 # ==============================
-# Get Date Range Function
+# Date Range
 # ==============================
 def get_date_range(range_type):
     today = datetime.now().date()
@@ -227,8 +206,8 @@ def process_sms():
         if not amount or not sms_text:
             return jsonify({"error": "Invalid data"}), 400
 
-        cleaned_text = clean_sms_text(sms_text)
-        category = model.predict([cleaned_text])[0].lower()
+        cleaned = clean_sms_text(sms_text)
+        category = model.predict([cleaned])[0].lower()
         merchant = extract_merchant(sms_text)
 
         conn = get_db_connection()
@@ -269,45 +248,41 @@ def get_transactions():
 
         rows = cur.fetchall()
 
-        transactions = [
-            {
-                "id": row[0],
-                "amount": row[1],
-                "merchant": row[2],
-                "category": row[3],
-                "date": row[4]
-            }
-            for row in rows
-        ]
-
         cur.close()
         conn.close()
 
-        return jsonify(transactions)
+        return jsonify([
+            {
+                "id": r[0],
+                "amount": r[1],
+                "merchant": r[2],
+                "category": r[3],
+                "date": r[4]
+            } for r in rows
+        ])
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 # ==============================
-# Spending Summary (SAFE + FLEXIBLE)
+# Spending Summary
 # ==============================
 @app.route("/spending-summary", methods=["GET"])
 def spending_summary():
     try:
         range_type = request.args.get("range", "last_week")
 
-        start_date, end_date = get_date_range(range_type)
+        start, end = get_date_range(range_type)
 
         conn = get_db_connection()
         cur = conn.cursor()
 
-        if start_date and end_date:
+        if start and end:
             cur.execute("""
                 SELECT COALESCE(SUM(amount), 0)
                 FROM transactions
                 WHERE date >= %s AND date < %s
-            """, (start_date, end_date))
-
+            """, (start, end))
             total = cur.fetchone()[0]
 
             cur.execute("""
@@ -315,8 +290,7 @@ def spending_summary():
                 FROM transactions
                 WHERE date >= %s AND date < %s
                 GROUP BY category
-            """, (start_date, end_date))
-
+            """, (start, end))
         else:
             cur.execute("SELECT COALESCE(SUM(amount), 0) FROM transactions")
             total = cur.fetchone()[0]
@@ -327,7 +301,7 @@ def spending_summary():
                 GROUP BY category
             """)
 
-        category_data = cur.fetchall()
+        data = cur.fetchall()
 
         cur.close()
         conn.close()
@@ -336,14 +310,14 @@ def spending_summary():
             "range": range_type,
             "total_spending": total,
             "category_breakdown": [
-                {"category": row[0], "amount": row[1]}
-                for row in category_data
+                {"category": r[0], "amount": r[1]} for r in data
             ]
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
+
+
 
 
 # ==============================
@@ -409,12 +383,8 @@ def weekly_analysis():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
-
-    
-
 # ==============================
-# Prediction (unchanged)
+# Prediction
 # ==============================
 @app.route("/predict-next-week", methods=["GET"])
 def predict_next_week():
@@ -423,12 +393,9 @@ def predict_next_week():
         cur = conn.cursor()
 
         cur.execute("""
-            SELECT DATE_TRUNC('week', date) as week,
-                   SUM(amount) as total
+            SELECT DATE_TRUNC('week', date), SUM(amount)
             FROM transactions
-            WHERE date < DATE_TRUNC('week', CURRENT_DATE)
-            GROUP BY week
-            ORDER BY week
+            GROUP BY 1 ORDER BY 1
         """)
 
         rows = cur.fetchall()
@@ -438,16 +405,10 @@ def predict_next_week():
         if len(rows) < 3:
             return jsonify({"error": "Not enough data"}), 400
 
-        totals = [row[1] for row in rows]
+        totals = [r[1] for r in rows]
+        pred = 0.5 * totals[-1] + 0.3 * totals[-2] + 0.2 * totals[-3]
 
-        prediction = (0.5 * totals[-1]) + (0.3 * totals[-2]) + (0.2 * totals[-3])
-
-        next_week_date = rows[-1][0] + timedelta(days=7)
-
-        return jsonify({
-            "prediction_week": next_week_date.strftime("%Y-%m-%d"),
-            "predicted_next_week_spending": round(float(prediction), 2)
-        })
+        return jsonify({"prediction": round(float(pred), 2)})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -456,4 +417,4 @@ def predict_next_week():
 # Run
 # ==============================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000)
