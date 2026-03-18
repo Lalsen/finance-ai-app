@@ -343,6 +343,75 @@ def spending_summary():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+
+
+# ==============================
+# Weekly Analysis
+# ==============================
+
+@app.route("/weekly-analysis", methods=["GET"])
+def weekly_analysis():
+
+    try:
+
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
+        cur.execute("""
+            SELECT category, SUM(amount) as total
+            FROM transactions
+            WHERE DATE_TRUNC('week', date) = DATE_TRUNC('week', CURRENT_DATE)
+            GROUP BY category
+        """)
+
+        current_week = {row["category"]: row["total"] for row in cur.fetchall()}
+
+        cur.execute("""
+            SELECT category, SUM(amount) as total
+            FROM transactions
+            WHERE DATE_TRUNC('week', date) =
+                  DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 week')
+            GROUP BY category
+        """)
+
+        last_week = {row["category"]: row["total"] for row in cur.fetchall()}
+
+        cur.close()
+        conn.close()
+
+        nudges = []
+
+        for category in current_week:
+
+            current_value = current_week.get(category, 0)
+            last_value = last_week.get(category, 0)
+
+            if last_value > 0:
+
+                change_percent = ((current_value - last_value) / last_value) * 100
+
+                if change_percent > 20:
+                    nudges.append(
+                        f"⚠️ Your {category} spending increased by {round(change_percent,1)}% this week."
+                    )
+
+                elif change_percent < -20:
+                    nudges.append(
+                        f"✅ Great! Your {category} spending decreased by {round(abs(change_percent),1)}% this week."
+                    )
+
+        return jsonify({
+            "current_week": current_week,
+            "last_week": last_week,
+            "nudges": nudges
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+
+    
 
 # ==============================
 # Prediction (unchanged)
