@@ -5,12 +5,19 @@ from datetime import timedelta, datetime
 import psycopg2.extras
 import joblib
 import re
+from sklearn.linear_model import LinearRegression
 import numpy as np
 from groq import Groq
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
+
 
 app = Flask(__name__)
 CORS(app)
+
+
 
 # ==============================
 # Environment Variables (SECURE)
@@ -27,18 +34,27 @@ if not DB_PASSWORD:
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
+
+
+
+# ==============================
+# Groq API Configuration
+# ==============================
+
+
+
 # ==============================
 # Load ML Model
 # ==============================
 model = joblib.load("category_model.pkl")
 
 # ==============================
-# Database Config (SECURE)
+# Database Config
 # ==============================
 DB_CONFIG = {
     "dbname": "finance_app_db",
     "user": "postgres",
-    "password": DB_PASSWORD,
+    "password": "lalsen1234",
     "host": "localhost",
     "port": "5432"
 }
@@ -59,26 +75,18 @@ def extract_merchant(sms_text):
     return merchant.strip()
 
 # ==============================
-# Clean SMS Text
-# ==============================
-def clean_sms_text(text):
-    text = text.lower()
-    text = re.sub(r'\d+', '', text)
-    text = re.sub(r'[^a-z ]', ' ', text)
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
-
-# ==============================
 # DB Context for AI Chatbot
 # ==============================
+
 def get_financial_context():
+    """Fetches relevant financial data from PostgreSQL to use as context for the AI."""
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
         # Total spending
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM transactions")
-        total = cur.fetchone()[0]
+        cur.execute("SELECT SUM(amount) FROM transactions")
+        total = cur.fetchone()[0] or 0
 
         # Category-wise breakdown
         cur.execute("""
@@ -89,7 +97,7 @@ def get_financial_context():
         """)
         categories = cur.fetchall()
 
-        # Recent transactions (LIMIT 10 - SAFE)
+        # Recent transactions (last 10)
         cur.execute("""
             SELECT merchant, amount, category, date
             FROM transactions
@@ -101,58 +109,110 @@ def get_financial_context():
         cur.close()
         conn.close()
 
+        # Build context string
         context = f"User's Financial Summary:\n"
         context += f"- Total spending: ₹{total:.2f}\n"
-
         context += "\nSpending by Category:\n"
         for row in categories:
             context += f"  - {row['category']}: ₹{float(row['total']):.2f}\n"
 
-        context += "\nRecent Transactions:\n"
+        context += "\nRecent Transactions (last 10):\n"
         for row in recent:
             context += f"  - {row['merchant']}: ₹{float(row['amount']):.2f} ({row['category']}) on {row['date']}\n"
 
         return context
 
     except Exception as e:
-        return f"(Error fetching data: {str(e)})"
+        return f"(Could not retrieve financial data: {str(e)})"
 
 # ==============================
 # AI Chatbot Endpoint
 # ==============================
+
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         data = request.get_json()
-
         if not data or "message" not in data:
-            return jsonify({"error": "Missing message"}), 400
+            return jsonify({"error": "Missing 'message' field in request body"}), 400
 
         user_message = data["message"].strip()
-
         if not user_message:
-            return jsonify({"error": "Empty message"}), 400
+            return jsonify({"error": "Message cannot be empty"}), 400
 
+        # Fetch financial context from PostgreSQL
         financial_context = get_financial_context()
 
+        # Build a context-aware prompt for Groq
         system_prompt = (
-            "You are a smart personal finance assistant.\n"
-            "Use the user's financial data if relevant.\n\n"
+            "You are a helpful personal finance assistant for a mobile finance tracking app. "
+            "You help users understand their spending habits, answer financial questions, and give advice. "
+            "When answering, use the user's actual financial data provided below if it is relevant to the question. "
+            "If the question is not related to finance, still answer helpfully.\n\n"
             f"{financial_context}\n\n"
-            f"User question: {user_message}"
+            f"User's question: {user_message}"
         )
 
+        # Call Groq API
         response = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": system_prompt}]
+            messages=[
+                {"role": "user", "content": system_prompt}
+            ]
         )
-
         reply = response.choices[0].message.content
 
-        return jsonify({"reply": reply})
+        return jsonify({"reply": reply}), 200
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        if "blocked" in str(e).lower():
+            return jsonify({"reply": "I'm sorry, I couldn't process that request. Please try rephrasing your question."}), 200
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+# ==============================
+# Clean SMS Text
+# ==============================
+def clean_sms_text(text):
+    text = text.lower()
+    text = re.sub(r'\d+', '', text)
+    text = re.sub(r'[^a-z ]', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+# ==============================
+# Get Date Range Function
+# ==============================
+def get_date_range(range_type):
+    today = datetime.now().date()
+
+    if range_type == "this_week":
+        start = today - timedelta(days=today.weekday())
+        end = start + timedelta(days=7)
+
+    elif range_type == "last_week":
+        end = today - timedelta(days=today.weekday())
+        start = end - timedelta(days=7)
+
+    elif range_type == "this_month":
+        start = today.replace(day=1)
+        end = today
+
+    elif range_type == "all":
+        start = None
+        end = None
+
+    else:
+        end = today - timedelta(days=today.weekday())
+        start = end - timedelta(days=7)
+
+    return start, end
+
+# ==============================
+# Home
+# ==============================
+@app.route("/")
+def home():
+    return "Backend Running"
 
 # ==============================
 # Process SMS
@@ -184,7 +244,7 @@ def process_sms():
         conn.close()
 
         return jsonify({
-            "message": "Stored",
+            "message": "Transaction stored",
             "merchant": merchant,
             "category": category
         })
@@ -209,64 +269,75 @@ def get_transactions():
 
         rows = cur.fetchall()
 
+        transactions = [
+            {
+                "id": row[0],
+                "amount": row[1],
+                "merchant": row[2],
+                "category": row[3],
+                "date": row[4]
+            }
+            for row in rows
+        ]
+
         cur.close()
         conn.close()
 
-        return jsonify([
-            {
-                "id": r[0],
-                "amount": r[1],
-                "merchant": r[2],
-                "category": r[3],
-                "date": r[4]
-            } for r in rows
-        ])
+        return jsonify(transactions)
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 # ==============================
-# Spending Summary
+# Spending Summary (SAFE + FLEXIBLE)
 # ==============================
 @app.route("/spending-summary", methods=["GET"])
 def spending_summary():
     try:
         range_type = request.args.get("range", "last_week")
-        today = datetime.now().date()
 
-        if range_type == "this_week":
-            start = today - timedelta(days=today.weekday())
-            end = start + timedelta(days=7)
-        elif range_type == "last_week":
-            end = today - timedelta(days=today.weekday())
-            start = end - timedelta(days=7)
-        else:
-            start, end = None, None
+        start_date, end_date = get_date_range(range_type)
 
         conn = get_db_connection()
         cur = conn.cursor()
 
-        if start:
+        if start_date and end_date:
             cur.execute("""
-                SELECT COALESCE(SUM(amount),0)
+                SELECT COALESCE(SUM(amount), 0)
                 FROM transactions
                 WHERE date >= %s AND date < %s
-            """, (start, end))
+            """, (start_date, end_date))
+
+            total = cur.fetchone()[0]
+
+            cur.execute("""
+                SELECT category, SUM(amount)
+                FROM transactions
+                WHERE date >= %s AND date < %s
+                GROUP BY category
+            """, (start_date, end_date))
+
         else:
-            cur.execute("SELECT COALESCE(SUM(amount),0) FROM transactions")
+            cur.execute("SELECT COALESCE(SUM(amount), 0) FROM transactions")
+            total = cur.fetchone()[0]
 
-        total = cur.fetchone()[0]
+            cur.execute("""
+                SELECT category, SUM(amount)
+                FROM transactions
+                GROUP BY category
+            """)
 
-        cur.execute("SELECT category, SUM(amount) FROM transactions GROUP BY category")
         category_data = cur.fetchall()
 
         cur.close()
         conn.close()
 
         return jsonify({
+            "range": range_type,
             "total_spending": total,
             "category_breakdown": [
-                {"category": r[0], "amount": r[1]} for r in category_data
+                {"category": row[0], "amount": row[1]}
+                for row in category_data
             ]
         })
 
@@ -274,7 +345,7 @@ def spending_summary():
         return jsonify({"error": str(e)}), 500
 
 # ==============================
-# Prediction
+# Prediction (unchanged)
 # ==============================
 @app.route("/predict-next-week", methods=["GET"])
 def predict_next_week():
@@ -283,30 +354,30 @@ def predict_next_week():
         cur = conn.cursor()
 
         cur.execute("""
-            SELECT DATE_TRUNC('week', date), SUM(amount)
+            SELECT DATE_TRUNC('week', date) as week,
+                   SUM(amount) as total
             FROM transactions
-            GROUP BY 1
-            ORDER BY 1
+            WHERE date < DATE_TRUNC('week', CURRENT_DATE)
+            GROUP BY week
+            ORDER BY week
         """)
 
         rows = cur.fetchall()
-
         cur.close()
         conn.close()
 
         if len(rows) < 3:
             return jsonify({"error": "Not enough data"}), 400
 
-        totals = [r[1] for r in rows]
+        totals = [row[1] for row in rows]
 
-        prediction = (
-            0.5 * totals[-1] +
-            0.3 * totals[-2] +
-            0.2 * totals[-3]
-        )
+        prediction = (0.5 * totals[-1]) + (0.3 * totals[-2]) + (0.2 * totals[-3])
+
+        next_week_date = rows[-1][0] + timedelta(days=7)
 
         return jsonify({
-            "predicted_spending": round(float(prediction), 2)
+            "prediction_week": next_week_date.strftime("%Y-%m-%d"),
+            "predicted_next_week_spending": round(float(prediction), 2)
         })
 
     except Exception as e:
@@ -316,4 +387,4 @@ def predict_next_week():
 # Run
 # ==============================
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
