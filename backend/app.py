@@ -10,6 +10,10 @@ from groq import Groq
 import os
 from dotenv import load_dotenv
 import urllib.parse as urlparse
+import hashlib
+import secrets
+import jwt as pyjwt
+from functools import wraps
 
 load_dotenv()
 
@@ -22,6 +26,7 @@ CORS(app)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
+JWT_SECRET = os.getenv("JWT_SECRET", "supersecretkey_change_in_production")
 
 if not GROQ_API_KEY:
     raise ValueError("❌ GROQ_API_KEY not set")
@@ -50,9 +55,154 @@ def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
 # ==============================
+# Initialize Tables
+# ==============================
+def init_db():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # Create users table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            salt TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Add user_id column to transactions if it doesn't exist
+    cur.execute("""
+        ALTER TABLE transactions
+        ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)
+    """)
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    print("✅ Database initialized")
+
+try:
+    init_db()
+except Exception as e:
+    print(f"⚠️ DB init warning: {e}")
+
+# ==============================
 # Load ML Model
 # ==============================
 model = joblib.load("category_model.pkl")
+
+# ==============================
+# Auth Helpers
+# ==============================
+def hash_password(password: str, salt: str) -> str:
+    return hashlib.sha256((password + salt).encode()).hexdigest()
+
+def generate_token(user_id: int, email: str) -> str:
+    payload = {
+        "user_id": user_id,
+        "email": email,
+        "exp": datetime.utcnow() + timedelta(days=30)
+    }
+    return pyjwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        if not token:
+            return jsonify({"error": "Token missing"}), 401
+        try:
+            data = pyjwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+            request.user_id = data["user_id"]
+            request.user_email = data["email"]
+        except pyjwt.ExpiredSignatureError:
+            return jsonify({"error": "Token expired"}), 401
+        except pyjwt.InvalidTokenError:
+            return jsonify({"error": "Invalid token"}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+# ==============================
+# Register
+# ==============================
+@app.route("/register", methods=["POST"])
+def register():
+    try:
+        data = request.get_json()
+        name = data.get("name", "").strip()
+        email = data.get("email", "").strip().lower()
+        password = data.get("password", "")
+
+        if not name or not email or not password:
+            return jsonify({"error": "Name, email and password are required"}), 400
+
+        if len(password) < 6:
+            return jsonify({"error": "Password must be at least 6 characters"}), 400
+
+        salt = secrets.token_hex(16)
+        password_hash = hash_password(password, salt)
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute(
+            "INSERT INTO users (name, email, password_hash, salt) VALUES (%s, %s, %s, %s) RETURNING id",
+            (name, email, password_hash, salt)
+        )
+        user_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        token = generate_token(user_id, email)
+        return jsonify({"token": token, "user_id": user_id, "name": name, "email": email}), 201
+
+    except psycopg2.errors.UniqueViolation:
+        return jsonify({"error": "Email already registered"}), 409
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ==============================
+# Login
+# ==============================
+@app.route("/login", methods=["POST"])
+def login():
+    try:
+        data = request.get_json()
+        email = data.get("email", "").strip().lower()
+        password = data.get("password", "")
+
+        if not email or not password:
+            return jsonify({"error": "Email and password are required"}), 400
+
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
+        cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+        user = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not user:
+            return jsonify({"error": "Invalid email or password"}), 401
+
+        expected_hash = hash_password(password, user["salt"])
+        if expected_hash != user["password_hash"]:
+            return jsonify({"error": "Invalid email or password"}), 401
+
+        token = generate_token(user["id"], user["email"])
+        return jsonify({
+            "token": token,
+            "user_id": user["id"],
+            "name": user["name"],
+            "email": user["email"]
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # ==============================
 # Extract Merchant
@@ -60,37 +210,37 @@ model = joblib.load("category_model.pkl")
 def extract_merchant(sms_text):
     sms_text = sms_text.lower()
     match = re.search(r"to\s([a-zA-Z\s]+)", sms_text)
-
     merchant = match.group(1) if match else "unknown"
     merchant = re.sub(r'[^a-z ]', '', merchant)
-
     return merchant.strip()
 
 # ==============================
-# Financial Context for Chatbot
+# Financial Context for Chatbot (user-scoped)
 # ==============================
-def get_financial_context():
+def get_financial_context(user_id: int):
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
-        cur.execute("SELECT SUM(amount) FROM transactions")
+        cur.execute("SELECT SUM(amount) FROM transactions WHERE user_id = %s", (user_id,))
         total = cur.fetchone()[0] or 0
 
         cur.execute("""
             SELECT category, SUM(amount) as total
             FROM transactions
+            WHERE user_id = %s
             GROUP BY category
             ORDER BY total DESC
-        """)
+        """, (user_id,))
         categories = cur.fetchall()
 
         cur.execute("""
             SELECT merchant, amount, category, date
             FROM transactions
+            WHERE user_id = %s
             ORDER BY date DESC
             LIMIT 10
-        """)
+        """, (user_id,))
         recent = cur.fetchall()
 
         cur.close()
@@ -116,6 +266,7 @@ def get_financial_context():
 # Chatbot Endpoint
 # ==============================
 @app.route("/chat", methods=["POST"])
+@token_required
 def chat():
     try:
         data = request.get_json()
@@ -128,7 +279,7 @@ def chat():
         if not user_message:
             return jsonify({"error": "Empty message"}), 400
 
-        context = get_financial_context()
+        context = get_financial_context(request.user_id)
 
         prompt = f"""
         You are a helpful finance assistant.
@@ -191,12 +342,13 @@ def get_date_range(range_type):
 # ==============================
 @app.route("/")
 def home():
-    return "Backend Running"
+    return "Backend Running ✅"
 
 # ==============================
 # Process SMS
 # ==============================
 @app.route("/process-sms", methods=["POST"])
+@token_required
 def process_sms():
     try:
         data = request.json
@@ -214,9 +366,9 @@ def process_sms():
         cur = conn.cursor()
 
         cur.execute("""
-            INSERT INTO transactions (amount, merchant, category)
-            VALUES (%s, %s, %s)
-        """, (amount, merchant, category))
+            INSERT INTO transactions (amount, merchant, category, user_id)
+            VALUES (%s, %s, %s, %s)
+        """, (amount, merchant, category, request.user_id))
 
         conn.commit()
         cur.close()
@@ -235,6 +387,7 @@ def process_sms():
 # Get Transactions
 # ==============================
 @app.route("/get-transactions", methods=["GET"])
+@token_required
 def get_transactions():
     try:
         conn = get_db_connection()
@@ -243,8 +396,9 @@ def get_transactions():
         cur.execute("""
             SELECT id, amount, merchant, category, date
             FROM transactions
+            WHERE user_id = %s
             ORDER BY date DESC
-        """)
+        """, (request.user_id,))
 
         rows = cur.fetchall()
 
@@ -268,10 +422,10 @@ def get_transactions():
 # Spending Summary
 # ==============================
 @app.route("/spending-summary", methods=["GET"])
+@token_required
 def spending_summary():
     try:
         range_type = request.args.get("range", "last_week")
-
         start, end = get_date_range(range_type)
 
         conn = get_db_connection()
@@ -281,25 +435,26 @@ def spending_summary():
             cur.execute("""
                 SELECT COALESCE(SUM(amount), 0)
                 FROM transactions
-                WHERE date >= %s AND date < %s
-            """, (start, end))
+                WHERE user_id = %s AND date >= %s AND date < %s
+            """, (request.user_id, start, end))
             total = cur.fetchone()[0]
 
             cur.execute("""
                 SELECT category, SUM(amount)
                 FROM transactions
-                WHERE date >= %s AND date < %s
+                WHERE user_id = %s AND date >= %s AND date < %s
                 GROUP BY category
-            """, (start, end))
+            """, (request.user_id, start, end))
         else:
-            cur.execute("SELECT COALESCE(SUM(amount), 0) FROM transactions")
+            cur.execute("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s", (request.user_id,))
             total = cur.fetchone()[0]
 
             cur.execute("""
                 SELECT category, SUM(amount)
                 FROM transactions
+                WHERE user_id = %s
                 GROUP BY category
-            """)
+            """, (request.user_id,))
 
         data = cur.fetchall()
 
@@ -317,59 +472,48 @@ def spending_summary():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
-
-
 # ==============================
 # Weekly Analysis
 # ==============================
-
 @app.route("/weekly-analysis", methods=["GET"])
+@token_required
 def weekly_analysis():
-
     try:
-
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
         cur.execute("""
             SELECT category, SUM(amount) as total
             FROM transactions
-            WHERE DATE_TRUNC('week', date) = DATE_TRUNC('week', CURRENT_DATE)
+            WHERE user_id = %s AND DATE_TRUNC('week', date) = DATE_TRUNC('week', CURRENT_DATE)
             GROUP BY category
-        """)
-
+        """, (request.user_id,))
         current_week = {row["category"]: row["total"] for row in cur.fetchall()}
 
         cur.execute("""
             SELECT category, SUM(amount) as total
             FROM transactions
-            WHERE DATE_TRUNC('week', date) =
+            WHERE user_id = %s AND DATE_TRUNC('week', date) =
                   DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 week')
             GROUP BY category
-        """)
-
+        """, (request.user_id,))
         last_week = {row["category"]: row["total"] for row in cur.fetchall()}
 
         cur.close()
         conn.close()
 
         nudges = []
-
         for category in current_week:
-
             current_value = current_week.get(category, 0)
             last_value = last_week.get(category, 0)
 
             if last_value > 0:
-
                 change_percent = ((current_value - last_value) / last_value) * 100
 
                 if change_percent > 20:
                     nudges.append(
                         f"⚠️ Your {category} spending increased by {round(change_percent,1)}% this week."
                     )
-
                 elif change_percent < -20:
                     nudges.append(
                         f"✅ Great! Your {category} spending decreased by {round(abs(change_percent),1)}% this week."
@@ -383,10 +527,12 @@ def weekly_analysis():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 # ==============================
 # Prediction
 # ==============================
 @app.route("/predict-next-week", methods=["GET"])
+@token_required
 def predict_next_week():
     try:
         conn = get_db_connection()
@@ -395,8 +541,9 @@ def predict_next_week():
         cur.execute("""
             SELECT DATE_TRUNC('week', date), SUM(amount)
             FROM transactions
+            WHERE user_id = %s
             GROUP BY 1 ORDER BY 1
-        """)
+        """, (request.user_id,))
 
         rows = cur.fetchall()
         cur.close()

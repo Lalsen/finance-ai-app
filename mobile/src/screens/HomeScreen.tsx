@@ -14,6 +14,9 @@ export default function HomeScreen({
   nudges,
   prediction,
   predictionWeek,
+  token,
+  userName,
+  onLogout,
 }: any) {
 
   const [summary, setSummary] = useState<any>(null);
@@ -31,7 +34,8 @@ export default function HomeScreen({
       setError("");
 
       const response = await fetch(
-        `https://finance-ai-backend-pkjk.onrender.com/spending-summary?range=${range}`
+        `https://finance-ai-backend-pkjk.onrender.com/spending-summary?range=${range}`,
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
       if (!response.ok) {
@@ -57,7 +61,16 @@ export default function HomeScreen({
   return (
     <ScrollView style={styles.container}>
 
-      <Text style={styles.title}>Finance Dashboard</Text>
+      {/* Header Row */}
+      <View style={styles.headerRow}>
+        <View>
+          <Text style={styles.greeting}>Hello, {userName || 'there'} 👋</Text>
+          <Text style={styles.title}>Finance Dashboard</Text>
+        </View>
+        <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* ============================
           🔥 TIME FILTER TOGGLE
@@ -249,11 +262,38 @@ const styles = StyleSheet.create({
     padding: 20
   },
 
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    marginBottom: 20,
+  },
+
+  greeting: {
+    fontSize: 13,
+    color: COLORS.subtext,
+    marginBottom: 2,
+  },
+
   title: {
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: "bold",
     color: COLORS.text,
-    marginBottom: 20
+  },
+
+  logoutBtn: {
+    backgroundColor: "rgba(255,70,70,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,70,70,0.3)",
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+  },
+
+  logoutText: {
+    color: "#FF7070",
+    fontWeight: "700",
+    fontSize: 13,
   },
 
   toggleContainer: {

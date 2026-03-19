@@ -17,9 +17,10 @@ interface Transaction {
 
 interface Props {
   transactions: Transaction[];
+  token?: string;
 }
 
-export default function TransactionsScreen({ transactions }: Props) {
+export default function TransactionsScreen({ transactions, token }: Props) {
 
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");

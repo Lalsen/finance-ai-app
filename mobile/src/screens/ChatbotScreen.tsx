@@ -30,6 +30,7 @@ interface HistoryItem {
 interface ChatBotProps {
   userId?: string;                         // pass the logged-in user's ID
   apiBaseUrl?: string;                     // e.g. "http://192.168.1.10:5000"
+  token?: string;                          // JWT auth token
   onClose?: () => void;
 }
 
@@ -104,6 +105,7 @@ const MessageBubble = ({ message }: { message: Message }) => {
 export default function ChatBot({
   userId,
   apiBaseUrl = 'https://finance-ai-backend-pkjk.onrender.com',
+  token,
   onClose,
 }: ChatBotProps) {
   const [messages, setMessages] = useState<Message[]>([
@@ -139,9 +141,12 @@ export default function ChatBot({
     scrollToBottom();
 
     try {
-      const res = await fetch(`${apiBaseUrl}/chat`, {  // ✅ fixed: was /api/chat
+      const res = await fetch(`${apiBaseUrl}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           message: trimmed,
           user_id: userId,
