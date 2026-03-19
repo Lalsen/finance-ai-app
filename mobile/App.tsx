@@ -2,9 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { PermissionsAndroid } from 'react-native';
 import axios from 'axios';
 import notifee from '@notifee/react-native';
-import { NavigationContainer } from "@react-navigation/native";
-import BottomTabs from "./src/navigation/BottomTabs";
 
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+
+import BottomTabs from "./src/navigation/BottomTabs";
+import LoginScreen from "./src/screens/LoginScreen";
+import SignupScreen from "./src/screens/SignupScreen";
+
+const Stack = createNativeStackNavigator();
 interface CategoryItem {
   category: string;
   amount: number;
@@ -24,6 +30,7 @@ interface Transaction {
 
 export default function App() {
 
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [nudges, setNudges] = useState<string[]>([]);
@@ -155,15 +162,35 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  return (
-    <NavigationContainer>
-      <BottomTabs
-        summary={summary}
-        transactions={transactions}
-        nudges={nudges}
-        prediction={prediction}
-        loading={loading}
-      />
-    </NavigationContainer>
-  );
+return (
+  <NavigationContainer>
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+
+      {!isLoggedIn ? (
+        <>
+          <Stack.Screen name="Login">
+            {(props) => (
+              <LoginScreen {...props} setIsLoggedIn={setIsLoggedIn} />
+            )}
+          </Stack.Screen>
+
+          <Stack.Screen name="Signup" component={SignupScreen} />
+        </>
+      ) : (
+        <Stack.Screen name="MainApp">
+          {() => (
+            <BottomTabs
+              summary={summary}
+              transactions={transactions}
+              nudges={nudges}
+              prediction={prediction}
+              loading={loading}
+            />
+          )}
+        </Stack.Screen>
+      )}
+
+    </Stack.Navigator>
+  </NavigationContainer>
+);
 }
