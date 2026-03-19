@@ -31,7 +31,7 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
 
   // ✅ Use emulator-safe URL if needed
-  const BASE_URL = "http://192.168.1.34:5000";
+  const BASE_URL = "http://172.20.10.2:5000";
   // const BASE_URL = "http://10.0.2.2:5000";
 
   // 🔥 Request SMS Permission

@@ -76,7 +76,7 @@ public class SMSReceiver extends BroadcastReceiver {
             try {
 
                 // Replace with your backend IP
-                URL url = new URL("http://192.168.1.34:5000/process-sms");
+                URL url = new URL("http://172.20.10.2:5000/process-sms");
 
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 

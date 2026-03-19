@@ -227,6 +227,19 @@ def process_sms():
         if not amount or not sms_text:
             return jsonify({"error": "Invalid data"}), 400
 
+        sms_lower = sms_text.lower()
+
+        # 🚫 Ignore incoming money (credits, refunds, etc.)
+        if any(word in sms_lower for word in ["credited", "received", "refund", "cashback"]):
+            print("⛔ Ignored incoming transaction:", sms_text)
+            return jsonify({"status": "ignored - incoming money"})
+
+        # ❌ Ignore non-spending messages
+        if not any(word in sms_lower for word in ["debited", "spent", "paid", "purchase", "txn"]):
+            print("⛔ Ignored non-expense SMS:", sms_text)
+            return jsonify({"status": "ignored - not expense"})
+
+        # ✅ Process only valid expense SMS
         cleaned_text = clean_sms_text(sms_text)
         category = model.predict([cleaned_text])[0].lower()
         merchant = extract_merchant(sms_text)
