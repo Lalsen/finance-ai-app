@@ -7,7 +7,7 @@ import {
   StyleSheet
 } from "react-native";
 
-export default function SignupScreen() {
+export default function SignupScreen({ navigation }: any) {
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -75,11 +75,15 @@ export default function SignupScreen() {
       <TouchableOpacity style={styles.button} onPress={handleSignup}>
         <Text style={styles.buttonText}>Sign Up</Text>
       </TouchableOpacity>
-
-      {/* Footer */}
-      <Text style={styles.footer}>
-        Already have an account? Login
-      </Text>
+<Text style={styles.footer}>
+  Already have an account?{" "}
+  <Text
+    style={{ color: "#4F46E5", fontWeight: "bold" }}
+    onPress={() => navigation.navigate("Login")}
+  >
+    Login
+  </Text>
+</Text>
 
     </View>
   );
