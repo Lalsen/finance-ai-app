@@ -31,7 +31,7 @@ export default function HomeScreen({
       setError("");
 
       const response = await fetch(
-        `http://10.0.2.2:5000/spending-summary?range=${range}`
+        `https://finance-ai-backend-pkjk.onrender.com/spending-summary?range=${range}`
       );
 
       if (!response.ok) {

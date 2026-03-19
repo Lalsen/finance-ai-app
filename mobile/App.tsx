@@ -30,7 +30,7 @@ export default function App() {
   const [prediction, setPrediction] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  const BASE_URL = "http://192.168.1.34:5000";
+  const BASE_URL = "https://finance-ai-backend-pkjk.onrender.com";
 
   // 🔐 SMS Permission
   const requestSMSPermission = async () => {

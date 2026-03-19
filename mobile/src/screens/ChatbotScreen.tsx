@@ -103,7 +103,7 @@ const MessageBubble = ({ message }: { message: Message }) => {
 
 export default function ChatBot({
   userId,
-  apiBaseUrl = 'http://192.168.1.34:5000',
+  apiBaseUrl = 'https://finance-ai-backend-pkjk.onrender.com',
   onClose,
 }: ChatBotProps) {
   const [messages, setMessages] = useState<Message[]>([
