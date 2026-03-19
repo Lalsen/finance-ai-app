@@ -7,17 +7,18 @@ import {
   StyleSheet
 } from "react-native";
 
-export default function LoginScreen() {
+export default function LoginScreen({ navigation, setIsLoggedIn }: any) {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const handleLogin = () => {
-    console.log("Email:", email);
-    console.log("Password:", password);
-
-    // Later connect to backend
-  };
+const handleLogin = () => {
+  if (email && password) {
+    setIsLoggedIn(true); // 🔥 THIS opens your app
+  } else {
+    alert("Enter valid credentials");
+  }
+};
 
   return (
     <View style={styles.container}>
@@ -50,10 +51,15 @@ export default function LoginScreen() {
         <Text style={styles.buttonText}>Login</Text>
       </TouchableOpacity>
 
-      {/* Footer */}
-      <Text style={styles.footer}>
-        Don’t have an account? Sign up
-      </Text>
+     <Text style={styles.footer}>
+  Don’t have an account?{" "}
+  <Text
+    style={{ color: "#4F46E5", fontWeight: "bold" }}
+    onPress={() => navigation.navigate("Signup")}
+  >
+    Sign up
+  </Text>
+</Text>
 
     </View>
   );
