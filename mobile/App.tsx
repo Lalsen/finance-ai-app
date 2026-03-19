@@ -2,8 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { PermissionsAndroid } from 'react-native';
 import axios from 'axios';
 import notifee from '@notifee/react-native';
+
 import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+
 import BottomTabs from "./src/navigation/BottomTabs";
+import LoginScreen from "./src/screens/LoginScreen";
+import RegisterScreen from "./src/screens/RegisterScreen";
+
+// 👇 Create Stack
+const Stack = createNativeStackNavigator();
 
 interface CategoryItem {
   category: string;
@@ -30,9 +38,7 @@ export default function App() {
   const [prediction, setPrediction] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // ✅ Use emulator-safe URL if needed
   const BASE_URL = "http://172.20.10.2:5000";
-  // const BASE_URL = "http://10.0.2.2:5000";
 
   // 🔥 Request SMS Permission
   const requestSMSPermission = async () => {
@@ -57,7 +63,7 @@ export default function App() {
     }
   };
 
-  // 🔔 Show Notification
+  // 🔔 Notification
   const showNotification = async (message: string) => {
     try {
       await notifee.requestPermission();
@@ -81,7 +87,7 @@ export default function App() {
     }
   };
 
-  // 📊 Fetch Summary + Transactions
+  // 📊 Fetch Data
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -90,9 +96,6 @@ export default function App() {
         axios.get(`${BASE_URL}/spending-summary`),
         axios.get(`${BASE_URL}/get-transactions`)
       ]);
-
-      console.log("📊 SUMMARY:", summaryRes.data);
-      console.log("💳 TRANSACTIONS:", transactionRes.data);
 
       setSummary(summaryRes.data || null);
       setTransactions(transactionRes.data || []);
@@ -104,14 +107,10 @@ export default function App() {
     }
   };
 
-  // 🧠 Fetch Weekly Nudges
+  // 🧠 Nudges
   const fetchNudges = async () => {
     try {
       const response = await axios.get(`${BASE_URL}/weekly-analysis`);
-
-      console.log("🧠 WEEKLY:", response.data);
-
-      // Safe fallback
       const weeklyNudges = response.data.nudges || [];
 
       setNudges(weeklyNudges);
@@ -125,13 +124,10 @@ export default function App() {
     }
   };
 
-  // 🔮 Fetch Prediction
+  // 🔮 Prediction
   const fetchPrediction = async () => {
     try {
       const response = await axios.get(`${BASE_URL}/predict-next-week`);
-
-      console.log("🔮 PREDICTION:", response.data);
-
       setPrediction(response.data.predicted_next_week_spending || null);
 
     } catch (error) {
@@ -139,15 +135,13 @@ export default function App() {
     }
   };
 
-  // 🚀 Initial Load + Auto Refresh
+  // 🚀 Load Data
   useEffect(() => {
     requestSMSPermission();
-
     fetchData();
     fetchNudges();
     fetchPrediction();
 
-    // 🔁 Auto refresh every 10 sec
     const interval = setInterval(() => {
       fetchData();
     }, 10000);
@@ -157,13 +151,36 @@ export default function App() {
 
   return (
     <NavigationContainer>
-      <BottomTabs
-        summary={summary}
-        transactions={transactions}
-        nudges={nudges}
-        prediction={prediction}
-        loading={loading}
-      />
+      <Stack.Navigator initialRouteName="Login">
+
+        {/* 🔐 LOGIN FIRST */}
+        <Stack.Screen
+          name="Login"
+          component={LoginScreen}
+          options={{ headerShown: false }}
+        />
+
+        {/* 📝 REGISTER */}
+        <Stack.Screen
+          name="Register"
+          component={RegisterScreen}
+          options={{ headerShown: false }}
+        />
+
+        {/* 🏠 MAIN APP */}
+        <Stack.Screen name="Home" options={{ headerShown: false }}>
+          {() => (
+            <BottomTabs
+              summary={summary}
+              transactions={transactions}
+              nudges={nudges}
+              prediction={prediction}
+              loading={loading}
+            />
+          )}
+        </Stack.Screen>
+
+      </Stack.Navigator>
     </NavigationContainer>
   );
 }

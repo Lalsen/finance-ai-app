@@ -356,6 +356,60 @@ def spending_summary():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+
+
+
+
+# =========================
+# REGISTER
+# =========================
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.json
+    email = data.get("email")
+    password = data.get("password")
+
+    conn = get_db_connection()
+
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO users (email, password) VALUES (%s, %s)",
+            (email, password)
+        )
+        conn.commit()
+        return jsonify({"message": "User registered"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+# =========================
+# LOGIN
+# =========================
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.json
+    email = data.get("email")
+    password = data.get("password")
+
+    conn = get_db_connection()
+
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM users WHERE email=%s AND password=%s",
+        (email, password)
+    )
+    user = cur.fetchone()
+
+    if user:
+        return jsonify({"message": "Login successful", "user_id": user[0]})
+    else:
+        return jsonify({"error": "Invalid credentials"}), 401
+
+
+
     
 
 
