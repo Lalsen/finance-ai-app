@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { PermissionsAndroid, View, ActivityIndicator } from 'react-native';
+import { PermissionsAndroid, View, ActivityIndicator, NativeModules } from 'react-native';
 import axios from 'axios';
 import notifee from '@notifee/react-native';
 import { NavigationContainer } from '@react-navigation/native';
@@ -133,6 +133,11 @@ export default function App() {
   // Called after successful login or register
   const handleAuthSuccess = (token: string, userId: number, name: string) => {
     setAuth({ token, userId, name });
+    // 💾 Persist token to SharedPreferences so SMSReceiver can use it
+    const { TokenModule } = NativeModules;
+    if (TokenModule) {
+      TokenModule.saveToken(token);
+    }
     requestSMSPermission();
     fetchData(token);
     fetchNudges(token);
@@ -141,6 +146,11 @@ export default function App() {
 
   // Logout
   const handleLogout = () => {
+    // 🗑️ Clear token from SharedPreferences so SMS processing stops
+    const { TokenModule } = NativeModules;
+    if (TokenModule) {
+      TokenModule.clearToken();
+    }
     setAuth(null);
     setSummary(null);
     setTransactions([]);
