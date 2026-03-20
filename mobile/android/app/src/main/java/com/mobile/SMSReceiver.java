@@ -76,7 +76,7 @@ public class SMSReceiver extends BroadcastReceiver {
             try {
 
                 // Replace with your backend IP
-                URL url = new URL("http://https://finance-ai-backend-pkjk.onrender.com/process-sms");
+                URL url = new URL("https://finance-ai-backend-pkjk.onrender.com/process-sms");
 
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
