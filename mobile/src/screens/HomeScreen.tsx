@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { COLORS } from "../styles/colors";
 
@@ -22,9 +23,12 @@ export default function HomeScreen({
   const [summary, setSummary] = useState<any>(null);
   const [selectedRange, setSelectedRange] = useState("last_week");
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [weeklyData, setWeeklyData] = useState<any>(null);
   const [weeklyLoading, setWeeklyLoading] = useState(false);
+  const [recentTxns, setRecentTxns] = useState<any[]>([]);
+  const [txnStatus, setTxnStatus] = useState("");
 
   // ============================
   // Fetch Data
@@ -74,14 +78,52 @@ export default function HomeScreen({
     }
   };
 
+  // Fetch recent transactions independently
+  const fetchRecentTxns = async () => {
+    try {
+      const res = await fetch(
+        `https://finance-ai-backend-pkjk.onrender.com/get-transactions`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : [];
+        setRecentTxns(list);
+        setTxnStatus(`${list.length} transaction${list.length !== 1 ? 's' : ''} loaded`);
+      } else {
+        setTxnStatus(`Error ${res.status} loading transactions`);
+      }
+    } catch (err: any) {
+      setTxnStatus(`Network error: ${err.message}`);
+    }
+  };
+
+  // Pull-to-refresh — re-fetches everything
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([fetchData(selectedRange), fetchWeeklyData(), fetchRecentTxns()]);
+    setRefreshing(false);
+  }, [selectedRange]);
+
   // Default load
   useEffect(() => {
     fetchData("last_week");
     fetchWeeklyData();
+    fetchRecentTxns();
   }, []);
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          colors={["#4F46E5"]}
+          tintColor="#4F46E5"
+        />
+      }
+    >
 
       {/* Header Row */}
       <View style={styles.headerRow}>
@@ -363,27 +405,26 @@ export default function HomeScreen({
       {/* ============================
           RECENT TRANSACTIONS
       ============================ */}
-      <Text style={styles.sectionTitle}>
-        Recent Transactions
+      <Text style={styles.sectionTitle}>Recent Transactions</Text>
+
+      {/* Fetch status — helps debug empty states */}
+      <Text style={{ fontSize: 11, color: COLORS.subtext, marginBottom: 6, marginLeft: 2 }}>
+        {txnStatus}
       </Text>
 
-      {transactions.slice(0, 3).map((txn: any) => (
-        <View key={txn.id} style={styles.transactionCard}>
-
-          <Text style={styles.merchant}>
-            {txn.merchant}
-          </Text>
-
-          <Text style={styles.amount}>
-            ₹ {txn.amount}
-          </Text>
-
-          <Text style={styles.category}>
-            {txn.category}
-          </Text>
-
-        </View>
-      ))}
+      {recentTxns.length === 0 ? (
+        <Text style={{ color: COLORS.subtext, marginTop: 6, marginBottom: 16 }}>
+          No transactions found. Pull down to refresh.
+        </Text>
+      ) : (
+        recentTxns.slice(0, 5).map((txn: any) => (
+          <View key={txn.id} style={styles.transactionCard}>
+            <Text style={styles.merchant}>{txn.merchant}</Text>
+            <Text style={styles.amount}>₹ {Number(txn.amount).toFixed(2)}</Text>
+            <Text style={styles.category}>{txn.category}</Text>
+          </View>
+        ))
+      )}
 
     </ScrollView>
   );
