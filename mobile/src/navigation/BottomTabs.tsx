@@ -77,7 +77,7 @@ export default function BottomTabs(props: any) {
           ),
         }}
       >
-        {() => <InsightsScreen summary={props.summary} />}
+      {() => <InsightsScreen token={props.token} />}
       </Tab.Screen>
 
       <Tab.Screen

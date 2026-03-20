@@ -1,5 +1,5 @@
 import psycopg2
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from datetime import timedelta, datetime
 import psycopg2.extras
@@ -104,7 +104,7 @@ def generate_token(user_id: int, email: str) -> str:
     payload = {
         "user_id": user_id,
         "email": email,
-        "exp": datetime.utcnow() + timedelta(days=30)
+        "exp": datetime.now() + timedelta(days=30)
     }
     return pyjwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
@@ -116,8 +116,8 @@ def token_required(f):
             return jsonify({"error": "Token missing"}), 401
         try:
             data = pyjwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-            request.user_id = data["user_id"]
-            request.user_email = data["email"]
+            g.user_id = data["user_id"]
+            g.user_email = data["email"]
         except pyjwt.ExpiredSignatureError:
             return jsonify({"error": "Token expired"}), 401
         except pyjwt.InvalidTokenError:
@@ -246,8 +246,8 @@ def get_financial_context(user_id: int):
         cur.close()
         conn.close()
 
-        context = f"User's Financial Summary:\n"
-        context += f"- Total spending: ₹{total:.2f}\n"
+        context = "User's Financial Summary:\n"
+        context += f"- Total spending: ₹{float(total):.2f}\n"
 
         context += "\nSpending by Category:\n"
         for row in categories:
@@ -279,7 +279,7 @@ def chat():
         if not user_message:
             return jsonify({"error": "Empty message"}), 400
 
-        context = get_financial_context(request.user_id)
+        context = get_financial_context(g.user_id)
 
         prompt = f"""
         You are a helpful finance assistant.
@@ -368,7 +368,7 @@ def process_sms():
         cur.execute("""
             INSERT INTO transactions (amount, merchant, category, user_id)
             VALUES (%s, %s, %s, %s)
-        """, (amount, merchant, category, request.user_id))
+        """, (amount, merchant, category, g.user_id))
 
         conn.commit()
         cur.close()
@@ -398,7 +398,7 @@ def get_transactions():
             FROM transactions
             WHERE user_id = %s
             ORDER BY date DESC
-        """, (request.user_id,))
+        """, (g.user_id,))
 
         rows = cur.fetchall()
 
@@ -408,10 +408,10 @@ def get_transactions():
         return jsonify([
             {
                 "id": r[0],
-                "amount": r[1],
+                "amount": float(r[1]),
                 "merchant": r[2],
                 "category": r[3],
-                "date": r[4]
+                "date": str(r[4])
             } for r in rows
         ])
 
@@ -436,7 +436,7 @@ def spending_summary():
                 SELECT COALESCE(SUM(amount), 0)
                 FROM transactions
                 WHERE user_id = %s AND date >= %s AND date < %s
-            """, (request.user_id, start, end))
+            """, (g.user_id, start, end))
             total = cur.fetchone()[0]
 
             cur.execute("""
@@ -444,9 +444,9 @@ def spending_summary():
                 FROM transactions
                 WHERE user_id = %s AND date >= %s AND date < %s
                 GROUP BY category
-            """, (request.user_id, start, end))
+            """, (g.user_id, start, end))
         else:
-            cur.execute("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s", (request.user_id,))
+            cur.execute("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s", (g.user_id,))
             total = cur.fetchone()[0]
 
             cur.execute("""
@@ -454,7 +454,7 @@ def spending_summary():
                 FROM transactions
                 WHERE user_id = %s
                 GROUP BY category
-            """, (request.user_id,))
+            """, (g.user_id,))
 
         data = cur.fetchall()
 
@@ -463,9 +463,9 @@ def spending_summary():
 
         return jsonify({
             "range": range_type,
-            "total_spending": total,
+            "total_spending": float(total),
             "category_breakdown": [
-                {"category": r[0], "amount": r[1]} for r in data
+                {"category": r[0], "amount": float(r[1])} for r in data
             ]
         })
 
@@ -487,8 +487,8 @@ def weekly_analysis():
             FROM transactions
             WHERE user_id = %s AND DATE_TRUNC('week', date) = DATE_TRUNC('week', CURRENT_DATE)
             GROUP BY category
-        """, (request.user_id,))
-        current_week = {row["category"]: row["total"] for row in cur.fetchall()}
+        """, (g.user_id,))
+        current_week = {row["category"]: float(row["total"]) for row in cur.fetchall()}
 
         cur.execute("""
             SELECT category, SUM(amount) as total
@@ -496,28 +496,33 @@ def weekly_analysis():
             WHERE user_id = %s AND DATE_TRUNC('week', date) =
                   DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 week')
             GROUP BY category
-        """, (request.user_id,))
-        last_week = {row["category"]: row["total"] for row in cur.fetchall()}
+        """, (g.user_id,))
+        last_week = {row["category"]: float(row["total"]) for row in cur.fetchall()}
 
         cur.close()
         conn.close()
 
         nudges = []
-        for category in current_week:
+        all_categories = set(list(current_week.keys()) + list(last_week.keys()))
+        for category in all_categories:
             current_value = current_week.get(category, 0)
             last_value = last_week.get(category, 0)
 
-            if last_value > 0:
+            if last_value > 0 and current_value > 0:
                 change_percent = ((current_value - last_value) / last_value) * 100
 
-                if change_percent > 20:
+                if change_percent > 10:
                     nudges.append(
-                        f"⚠️ Your {category} spending increased by {round(change_percent,1)}% this week."
+                        f"⚠️ Your {category} spending increased by {change_percent:.1f}% this week."
                     )
-                elif change_percent < -20:
+                elif change_percent < -10:
                     nudges.append(
-                        f"✅ Great! Your {category} spending decreased by {round(abs(change_percent),1)}% this week."
+                        f"✅ Great! Your {category} spending decreased by {abs(change_percent):.1f}% this week."
                     )
+            elif last_value == 0 and current_value > 0:
+                nudges.append(
+                    f"🆕 New spending in {category} this week: ₹{current_value:.1f}."
+                )
 
         return jsonify({
             "current_week": current_week,
@@ -543,7 +548,7 @@ def predict_next_week():
             FROM transactions
             WHERE user_id = %s
             GROUP BY 1 ORDER BY 1
-        """, (request.user_id,))
+        """, (g.user_id,))
 
         rows = cur.fetchall()
         cur.close()
@@ -552,10 +557,10 @@ def predict_next_week():
         if len(rows) < 3:
             return jsonify({"error": "Not enough data"}), 400
 
-        totals = [r[1] for r in rows]
+        totals = [float(r[1]) for r in rows]
         pred = 0.5 * totals[-1] + 0.3 * totals[-2] + 0.2 * totals[-3]
 
-        return jsonify({"prediction": round(float(pred), 2)})
+        return jsonify({"prediction": float(f"{pred:.2f}")})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500

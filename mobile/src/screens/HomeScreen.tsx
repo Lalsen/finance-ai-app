@@ -11,7 +11,6 @@ import { COLORS } from "../styles/colors";
 
 export default function HomeScreen({
   transactions,
-  nudges,
   prediction,
   predictionWeek,
   token,
@@ -23,6 +22,8 @@ export default function HomeScreen({
   const [selectedRange, setSelectedRange] = useState("last_week");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [weeklyData, setWeeklyData] = useState<any>(null);
+  const [weeklyLoading, setWeeklyLoading] = useState(false);
 
   // ============================
   // Fetch Data
@@ -53,9 +54,29 @@ export default function HomeScreen({
     }
   };
 
+  // Fetch weekly analysis
+  const fetchWeeklyData = async () => {
+    try {
+      setWeeklyLoading(true);
+      const response = await fetch(
+        `https://finance-ai-backend-pkjk.onrender.com/weekly-analysis`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setWeeklyData(data);
+      }
+    } catch (err) {
+      console.error("Weekly analysis error:", err);
+    } finally {
+      setWeeklyLoading(false);
+    }
+  };
+
   // Default load
   useEffect(() => {
     fetchData("last_week");
+    fetchWeeklyData();
   }, []);
 
   return (
@@ -134,7 +155,7 @@ export default function HomeScreen({
         <View style={styles.primaryCard}>
           <Text style={styles.cardLabel}>Total Spending</Text>
           <Text style={styles.bigAmount}>
-            ₹ {summary.total_spending}
+            ₹ {Number(summary.total_spending).toFixed(2)}
           </Text>
         </View>
       )}
@@ -163,17 +184,73 @@ export default function HomeScreen({
       {/* ============================
           WEEKLY INSIGHTS
       ============================ */}
-      {nudges.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Weekly Insights</Text>
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Weekly Insights</Text>
 
-          {nudges.map((nudge: string, index: number) => (
-            <Text key={index} style={styles.nudge}>
-              ✔ {nudge}
-            </Text>
-          ))}
-        </View>
-      )}
+        {weeklyLoading && (
+          <ActivityIndicator size="small" color={COLORS.primary} style={{ marginTop: 10 }} />
+        )}
+
+        {!weeklyLoading && weeklyData && (() => {
+          const { current_week, last_week, nudges: weekNudges } = weeklyData;
+          const allCategories = Array.from(
+            new Set([...Object.keys(current_week || {}), ...Object.keys(last_week || {})])
+          );
+
+          if (allCategories.length === 0) {
+            return (
+              <Text style={{ color: COLORS.subtext, marginTop: 10 }}>
+                No weekly data available yet.
+              </Text>
+            );
+          }
+
+          return (
+            <View>
+              {/* Nudge messages */}
+              {weekNudges && weekNudges.length > 0 && weekNudges.map((nudge: string, i: number) => (
+                <Text key={i} style={styles.nudge}>{nudge}</Text>
+              ))}
+
+              {/* Per-category this week vs last week */}
+              <Text style={[styles.cardTitle, { marginTop: 14, marginBottom: 6 }]}>
+                This Week vs Last Week
+              </Text>
+              {allCategories.map((cat, i) => {
+                const curr = current_week[cat] || 0;
+                const prev = last_week[cat] || 0;
+                const pct = prev > 0 ? ((curr - prev) / prev) * 100 : null;
+                const isUp = pct !== null && pct > 0;
+                const isDown = pct !== null && pct < 0;
+
+                return (
+                  <View key={i} style={styles.insightRow}>
+                    <Text style={styles.insightCat}>
+                      {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                    </Text>
+                    <View style={styles.insightAmounts}>
+                      <Text style={styles.insightAmount}>₹{curr.toFixed(0)}</Text>
+                      {pct !== null ? (
+                        <Text style={[styles.insightPct, isUp ? styles.pctUp : isDown ? styles.pctDown : styles.pctNeutral]}>
+                          {isUp ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
+                        </Text>
+                      ) : (
+                        <Text style={styles.pctNeutral}>New</Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          );
+        })()}
+
+        {!weeklyLoading && !weeklyData && (
+          <Text style={{ color: COLORS.subtext, marginTop: 10 }}>
+            Could not load weekly data.
+          </Text>
+        )}
+      </View>
 
       {/* ============================
           CATEGORY SPENDING
@@ -408,6 +485,53 @@ const styles = StyleSheet.create({
     height: 8,
     backgroundColor: "#4F46E5",
     borderRadius: 5
+  },
+
+  insightRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
+
+  insightCat: {
+    fontSize: 14,
+    color: COLORS.text,
+    flex: 1,
+  },
+
+  insightAmounts: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  insightAmount: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.text,
+  },
+
+  insightPct: {
+    fontSize: 12,
+    fontWeight: "700",
+    minWidth: 60,
+    textAlign: "right",
+  },
+
+  pctUp: {
+    color: "#EF4444",
+  },
+
+  pctDown: {
+    color: "#22C55E",
+  },
+
+  pctNeutral: {
+    color: COLORS.subtext,
+    fontSize: 12,
   },
 
 });
