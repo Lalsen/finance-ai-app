@@ -315,25 +315,18 @@ def clean_sms_text(text):
 def get_date_range(range_type):
     today = datetime.now().date()
 
-    if range_type == "this_week":
-        start = today - timedelta(days=today.weekday())
-        end = start + timedelta(days=7)
-
-    elif range_type == "last_week":
-        end = today - timedelta(days=today.weekday())
-        start = end - timedelta(days=7)
-
-    elif range_type == "this_month":
+    if range_type == "this_month":
         start = today.replace(day=1)
-        end = today
+        end = today + timedelta(days=1)   # inclusive of today
 
     elif range_type == "all":
         start = None
         end = None
 
     else:
-        end = today - timedelta(days=today.weekday())
-        start = end - timedelta(days=7)
+        # week ranges handled by DATE_TRUNC in SQL
+        start = None
+        end = None
 
     return start, end
 
@@ -365,9 +358,10 @@ def process_sms():
         conn = get_db_connection()
         cur = conn.cursor()
 
+        # Explicitly set date = CURRENT_TIMESTAMP so date filters always work
         cur.execute("""
-            INSERT INTO transactions (amount, merchant, category, user_id)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO transactions (amount, merchant, category, user_id, date)
+            VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
         """, (amount, merchant, category, g.user_id))
 
         conn.commit()
@@ -426,38 +420,84 @@ def get_transactions():
 def spending_summary():
     try:
         range_type = request.args.get("range", "last_week")
-        start, end = get_date_range(range_type)
 
         conn = get_db_connection()
         cur = conn.cursor()
 
-        if start and end:
+        # Use DATE_TRUNC for week ranges — consistent with weekly_analysis
+        # This avoids Python date vs DB timestamp timezone mismatches
+        if range_type == "this_week":
             cur.execute("""
                 SELECT COALESCE(SUM(amount), 0)
                 FROM transactions
-                WHERE user_id = %s AND date >= %s AND date < %s
-            """, (g.user_id, start, end))
+                WHERE user_id = %s
+                AND DATE_TRUNC('week', date::timestamp) = DATE_TRUNC('week', CURRENT_TIMESTAMP)
+            """, (g.user_id,))
             total = cur.fetchone()[0]
 
             cur.execute("""
-                SELECT category, SUM(amount)
+                SELECT category, COALESCE(SUM(amount), 0)
                 FROM transactions
-                WHERE user_id = %s AND date >= %s AND date < %s
+                WHERE user_id = %s
+                AND DATE_TRUNC('week', date::timestamp) = DATE_TRUNC('week', CURRENT_TIMESTAMP)
                 GROUP BY category
-            """, (g.user_id, start, end))
-        else:
-            cur.execute("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s", (g.user_id,))
+                ORDER BY SUM(amount) DESC
+            """, (g.user_id,))
+
+        elif range_type == "last_week":
+            cur.execute("""
+                SELECT COALESCE(SUM(amount), 0)
+                FROM transactions
+                WHERE user_id = %s
+                AND DATE_TRUNC('week', date::timestamp) =
+                    DATE_TRUNC('week', CURRENT_TIMESTAMP - INTERVAL '1 week')
+            """, (g.user_id,))
             total = cur.fetchone()[0]
 
             cur.execute("""
-                SELECT category, SUM(amount)
+                SELECT category, COALESCE(SUM(amount), 0)
+                FROM transactions
+                WHERE user_id = %s
+                AND DATE_TRUNC('week', date::timestamp) =
+                    DATE_TRUNC('week', CURRENT_TIMESTAMP - INTERVAL '1 week')
+                GROUP BY category
+                ORDER BY SUM(amount) DESC
+            """, (g.user_id,))
+
+        elif range_type == "this_month":
+            cur.execute("""
+                SELECT COALESCE(SUM(amount), 0)
+                FROM transactions
+                WHERE user_id = %s
+                AND DATE_TRUNC('month', date::timestamp) = DATE_TRUNC('month', CURRENT_TIMESTAMP)
+            """, (g.user_id,))
+            total = cur.fetchone()[0]
+
+            cur.execute("""
+                SELECT category, COALESCE(SUM(amount), 0)
+                FROM transactions
+                WHERE user_id = %s
+                AND DATE_TRUNC('month', date::timestamp) = DATE_TRUNC('month', CURRENT_TIMESTAMP)
+                GROUP BY category
+                ORDER BY SUM(amount) DESC
+            """, (g.user_id,))
+
+        else:  # "all"
+            cur.execute(
+                "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s",
+                (g.user_id,)
+            )
+            total = cur.fetchone()[0]
+
+            cur.execute("""
+                SELECT category, COALESCE(SUM(amount), 0)
                 FROM transactions
                 WHERE user_id = %s
                 GROUP BY category
+                ORDER BY SUM(amount) DESC
             """, (g.user_id,))
 
         data = cur.fetchall()
-
         cur.close()
         conn.close()
 
@@ -482,22 +522,45 @@ def weekly_analysis():
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
+        # Current week spending per category
         cur.execute("""
             SELECT category, SUM(amount) as total
             FROM transactions
-            WHERE user_id = %s AND DATE_TRUNC('week', date) = DATE_TRUNC('week', CURRENT_DATE)
+            WHERE user_id = %s
+            AND DATE_TRUNC('week', date::timestamp) = DATE_TRUNC('week', CURRENT_TIMESTAMP)
             GROUP BY category
         """, (g.user_id,))
         current_week = {row["category"]: float(row["total"]) for row in cur.fetchall()}
 
+        # Last week spending per category
         cur.execute("""
             SELECT category, SUM(amount) as total
             FROM transactions
-            WHERE user_id = %s AND DATE_TRUNC('week', date) =
-                  DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 week')
+            WHERE user_id = %s
+            AND DATE_TRUNC('week', date::timestamp) =
+                DATE_TRUNC('week', CURRENT_TIMESTAMP - INTERVAL '1 week')
             GROUP BY category
         """, (g.user_id,))
         last_week = {row["category"]: float(row["total"]) for row in cur.fetchall()}
+
+        # Current week total
+        cur.execute("""
+            SELECT COALESCE(SUM(amount), 0)
+            FROM transactions
+            WHERE user_id = %s
+            AND DATE_TRUNC('week', date::timestamp) = DATE_TRUNC('week', CURRENT_TIMESTAMP)
+        """, (g.user_id,))
+        current_total = float(cur.fetchone()[0])
+
+        # Last week total
+        cur.execute("""
+            SELECT COALESCE(SUM(amount), 0)
+            FROM transactions
+            WHERE user_id = %s
+            AND DATE_TRUNC('week', date::timestamp) =
+                DATE_TRUNC('week', CURRENT_TIMESTAMP - INTERVAL '1 week')
+        """, (g.user_id,))
+        last_total = float(cur.fetchone()[0])
 
         cur.close()
         conn.close()
@@ -510,25 +573,81 @@ def weekly_analysis():
 
             if last_value > 0 and current_value > 0:
                 change_percent = ((current_value - last_value) / last_value) * 100
-
                 if change_percent > 10:
                     nudges.append(
-                        f"⚠️ Your {category} spending increased by {change_percent:.1f}% this week."
+                        f"\u26a0\ufe0f Your {category} spending increased by {change_percent:.1f}% this week."
                     )
                 elif change_percent < -10:
                     nudges.append(
-                        f"✅ Great! Your {category} spending decreased by {abs(change_percent):.1f}% this week."
+                        f"\u2705 Great! Your {category} spending decreased by {abs(change_percent):.1f}% this week."
                     )
             elif last_value == 0 and current_value > 0:
                 nudges.append(
-                    f"🆕 New spending in {category} this week: ₹{current_value:.1f}."
+                    f"\U0001f195 New spending in {category} this week: \u20b9{current_value:.1f}."
+                )
+
+        # Overall week-over-week change nudge
+        if last_total > 0 and current_total > 0:
+            overall_change = ((current_total - last_total) / last_total) * 100
+            if overall_change > 10:
+                nudges.insert(0,
+                    f"\u26a0\ufe0f Overall spending up {overall_change:.1f}% vs last week."
+                )
+            elif overall_change < -10:
+                nudges.insert(0,
+                    f"\u2705 Overall spending down {abs(overall_change):.1f}% vs last week!"
                 )
 
         return jsonify({
             "current_week": current_week,
             "last_week": last_week,
+            "current_total": current_total,
+            "last_total": last_total,
             "nudges": nudges
         })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ==============================
+# Debug — check transaction dates
+# ==============================
+@app.route("/debug-transactions", methods=["GET"])
+@token_required
+def debug_transactions():
+    """Temporary debug endpoint — shows recent transactions with their dates."""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
+        cur.execute("""
+            SELECT id, amount, merchant, category,
+                   date,
+                   DATE_TRUNC('week', date::timestamp) as week_start,
+                   DATE_TRUNC('week', CURRENT_TIMESTAMP) as current_week_start
+            FROM transactions
+            WHERE user_id = %s
+            ORDER BY date DESC NULLS LAST
+            LIMIT 20
+        """, (g.user_id,))
+
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return jsonify([
+            {
+                "id": row["id"],
+                "amount": float(row["amount"]),
+                "merchant": row["merchant"],
+                "category": row["category"],
+                "date": str(row["date"]),
+                "week_start": str(row["week_start"]),
+                "current_week_start": str(row["current_week_start"]),
+                "in_current_week": str(row["week_start"]) == str(row["current_week_start"])
+            } for row in rows
+        ])
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500

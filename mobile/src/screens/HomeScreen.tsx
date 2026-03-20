@@ -14,6 +14,7 @@ export default function HomeScreen({
   prediction,
   predictionWeek,
   token,
+  nudges,
   userName,
   onLogout,
 }: any) {
@@ -192,55 +193,112 @@ export default function HomeScreen({
         )}
 
         {!weeklyLoading && weeklyData && (() => {
-          const { current_week, last_week, nudges: weekNudges } = weeklyData;
+          const { current_week, last_week, current_total, last_total, nudges: weekNudges } = weeklyData;
           const allCategories = Array.from(
             new Set([...Object.keys(current_week || {}), ...Object.keys(last_week || {})])
           );
 
-          if (allCategories.length === 0) {
+          const hasAnyData = (current_total || 0) > 0 || (last_total || 0) > 0;
+
+          if (!hasAnyData && allCategories.length === 0) {
             return (
               <Text style={{ color: COLORS.subtext, marginTop: 10 }}>
-                No weekly data available yet.
+                No weekly data yet. Add transactions to see insights.
               </Text>
             );
           }
 
+          // Overall week-over-week % change
+          const overallPct = last_total > 0
+            ? ((current_total - last_total) / last_total) * 100
+            : null;
+          const overallUp = overallPct !== null && overallPct > 0;
+          const overallDown = overallPct !== null && overallPct < 0;
+
           return (
             <View>
-              {/* Nudge messages */}
-              {weekNudges && weekNudges.length > 0 && weekNudges.map((nudge: string, i: number) => (
-                <Text key={i} style={styles.nudge}>{nudge}</Text>
-              ))}
+              {/* Nudge messages — prominently styled as alert cards */}
+              {weekNudges && weekNudges.length > 0 ? (
+                <View style={{ marginTop: 12 }}>
+                  {weekNudges.map((nudge: string, i: number) => {
+                    const isWarning = nudge.includes('increased') || nudge.includes('up') || nudge.startsWith('⚠');
+                    const isSuccess = nudge.includes('decreased') || nudge.includes('down') || nudge.startsWith('✅');
+                    return (
+                      <View
+                        key={i}
+                        style={[
+                          styles.nudgeCard,
+                          isWarning ? styles.nudgeCardWarning
+                            : isSuccess ? styles.nudgeCardSuccess
+                            : styles.nudgeCardInfo,
+                        ]}
+                      >
+                        <Text style={[
+                          styles.nudgeCardText,
+                          isWarning ? styles.nudgeTextWarning
+                            : isSuccess ? styles.nudgeTextSuccess
+                            : styles.nudgeTextInfo,
+                        ]}>
+                          {nudge}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <Text style={{ color: COLORS.subtext, marginTop: 10, fontSize: 13 }}>
+                  No significant changes this week vs last week.
+                </Text>
+              )}
+
+              {/* Overall this week vs last week totals */}
+              <View style={[styles.insightRow, { marginTop: 12, backgroundColor: '#F8F9FF', borderRadius: 8, padding: 8 }]}>
+                <Text style={[styles.insightCat, { fontWeight: '700' }]}>📊 This Week Total</Text>
+                <View style={styles.insightAmounts}>
+                  <Text style={[styles.insightAmount, { fontSize: 15 }]}>₹{(current_total || 0).toFixed(0)}</Text>
+                  {overallPct !== null ? (
+                    <Text style={[styles.insightPct, overallUp ? styles.pctUp : overallDown ? styles.pctDown : styles.pctNeutral]}>
+                      {overallUp ? '▲' : '▼'} {Math.abs(overallPct).toFixed(1)}%
+                    </Text>
+                  ) : (
+                    <Text style={styles.pctNeutral}>{last_total > 0 ? '' : 'No prior week'}</Text>
+                  )}
+                </View>
+              </View>
 
               {/* Per-category this week vs last week */}
               <Text style={[styles.cardTitle, { marginTop: 14, marginBottom: 6 }]}>
-                This Week vs Last Week
+                Category Breakdown
               </Text>
-              {allCategories.map((cat, i) => {
-                const curr = current_week[cat] || 0;
-                const prev = last_week[cat] || 0;
-                const pct = prev > 0 ? ((curr - prev) / prev) * 100 : null;
-                const isUp = pct !== null && pct > 0;
-                const isDown = pct !== null && pct < 0;
+              {allCategories.length === 0 ? (
+                <Text style={{ color: COLORS.subtext, marginTop: 6 }}>No category data this week.</Text>
+              ) : (
+                allCategories.map((cat, i) => {
+                  const curr = current_week[cat] || 0;
+                  const prev = last_week[cat] || 0;
+                  const pct = prev > 0 ? ((curr - prev) / prev) * 100 : null;
+                  const isUp = pct !== null && pct > 0;
+                  const isDown = pct !== null && pct < 0;
 
-                return (
-                  <View key={i} style={styles.insightRow}>
-                    <Text style={styles.insightCat}>
-                      {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                    </Text>
-                    <View style={styles.insightAmounts}>
-                      <Text style={styles.insightAmount}>₹{curr.toFixed(0)}</Text>
-                      {pct !== null ? (
-                        <Text style={[styles.insightPct, isUp ? styles.pctUp : isDown ? styles.pctDown : styles.pctNeutral]}>
-                          {isUp ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
-                        </Text>
-                      ) : (
-                        <Text style={styles.pctNeutral}>New</Text>
-                      )}
+                  return (
+                    <View key={i} style={styles.insightRow}>
+                      <Text style={styles.insightCat}>
+                        {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                      </Text>
+                      <View style={styles.insightAmounts}>
+                        <Text style={styles.insightAmount}>₹{curr.toFixed(0)}</Text>
+                        {pct !== null ? (
+                          <Text style={[styles.insightPct, isUp ? styles.pctUp : isDown ? styles.pctDown : styles.pctNeutral]}>
+                            {isUp ? '▲' : '▼'} {Math.abs(pct).toFixed(1)}%
+                          </Text>
+                        ) : (
+                          <Text style={styles.pctNeutral}>New</Text>
+                        )}
+                      </View>
                     </View>
-                  </View>
-                );
-              })}
+                  );
+                })
+              )}
             </View>
           );
         })()}
@@ -282,7 +340,7 @@ export default function HomeScreen({
                     </Text>
 
                     <Text>
-                      ₹ {item.amount}
+                      ₹ {Number(item.amount).toFixed(2)}
                     </Text>
                   </View>
 
@@ -532,6 +590,47 @@ const styles = StyleSheet.create({
   pctNeutral: {
     color: COLORS.subtext,
     fontSize: 12,
+  },
+
+  // ── Nudge alert cards ──
+  nudgeCard: {
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+    borderLeftWidth: 4,
+  },
+
+  nudgeCardWarning: {
+    backgroundColor: "#FFF5F5",
+    borderLeftColor: "#EF4444",
+  },
+
+  nudgeCardSuccess: {
+    backgroundColor: "#F0FDF4",
+    borderLeftColor: "#22C55E",
+  },
+
+  nudgeCardInfo: {
+    backgroundColor: "#EFF6FF",
+    borderLeftColor: "#3B82F6",
+  },
+
+  nudgeCardText: {
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 20,
+  },
+
+  nudgeTextWarning: {
+    color: "#B91C1C",
+  },
+
+  nudgeTextSuccess: {
+    color: "#15803D",
+  },
+
+  nudgeTextInfo: {
+    color: "#1D4ED8",
   },
 
 });
