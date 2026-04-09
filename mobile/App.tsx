@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, PermissionsAndroid } from 'react-native';
+import { PermissionsAndroid } from 'react-native';
 import axios from 'axios';
 import notifee from '@notifee/react-native';
+import { NavigationContainer } from "@react-navigation/native";
+import BottomTabs from "./src/navigation/BottomTabs";
 
 interface CategoryItem {
   category: string;
@@ -26,9 +28,11 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [nudges, setNudges] = useState<string[]>([]);
   const [prediction, setPrediction] = useState<number | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  const BASE_URL = "http://172.20.10.2:5000"; // keep your IP
-
+  // ✅ Use emulator-safe URL if needed
+  const BASE_URL = "http://172.20.10.2:5000";
+  // const BASE_URL = "http://10.0.2.2:5000";
 
   // 🔥 Request SMS Permission
   const requestSMSPermission = async () => {
@@ -42,61 +46,73 @@ export default function App() {
         }
       );
 
-      if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-        console.log("SMS Permission Granted");
-      } else {
-        console.log("SMS Permission Denied");
-      }
+      console.log(
+        granted === PermissionsAndroid.RESULTS.GRANTED
+          ? "✅ SMS Permission Granted"
+          : "❌ SMS Permission Denied"
+      );
 
     } catch (err) {
-      console.warn(err);
+      console.warn("Permission Error:", err);
     }
   };
 
-
-  // 🔔 Show Local Notification
+  // 🔔 Show Notification
   const showNotification = async (message: string) => {
+    try {
+      await notifee.requestPermission();
 
-    await notifee.requestPermission();
+      const channelId = await notifee.createChannel({
+        id: 'finance',
+        name: 'Finance Alerts',
+      });
 
-    const channelId = await notifee.createChannel({
-      id: 'finance',
-      name: 'Finance Alerts',
-    });
+      await notifee.displayNotification({
+        title: 'Smart Finance Insight',
+        body: message,
+        android: {
+          channelId,
+          smallIcon: 'ic_launcher',
+        },
+      });
 
-    await notifee.displayNotification({
-      title: 'Smart Finance Insight',
-      body: message,
-      android: {
-        channelId,
-        smallIcon: 'ic_launcher',
-      },
-    });
+    } catch (err) {
+      console.log("Notification Error:", err);
+    }
   };
-
 
   // 📊 Fetch Summary + Transactions
   const fetchData = async () => {
     try {
+      setLoading(true);
 
-      const summaryRes = await axios.get(`${BASE_URL}/spending-summary`);
-      const transactionRes = await axios.get(`${BASE_URL}/get-transactions`);
+      const [summaryRes, transactionRes] = await Promise.all([
+        axios.get(`${BASE_URL}/spending-summary`),
+        axios.get(`${BASE_URL}/get-transactions`)
+      ]);
 
-      setSummary(summaryRes.data);
-      setTransactions(transactionRes.data);
+      console.log("📊 SUMMARY:", summaryRes.data);
+      console.log("💳 TRANSACTIONS:", transactionRes.data);
+
+      setSummary(summaryRes.data || null);
+      setTransactions(transactionRes.data || []);
 
     } catch (error) {
-      console.log(error);
+      console.log("❌ FETCH ERROR:", error);
+    } finally {
+      setLoading(false);
     }
   };
-
 
   // 🧠 Fetch Weekly Nudges
   const fetchNudges = async () => {
     try {
-
       const response = await axios.get(`${BASE_URL}/weekly-analysis`);
-      const weeklyNudges = response.data.nudges;
+
+      console.log("🧠 WEEKLY:", response.data);
+
+      // Safe fallback
+      const weeklyNudges = response.data.nudges || [];
 
       setNudges(weeklyNudges);
 
@@ -105,109 +121,49 @@ export default function App() {
       }
 
     } catch (error) {
-      console.log(error);
+      console.log("❌ NUDGE ERROR:", error);
     }
   };
 
-
-  // 🔮 Fetch ML Prediction
+  // 🔮 Fetch Prediction
   const fetchPrediction = async () => {
     try {
-
       const response = await axios.get(`${BASE_URL}/predict-next-week`);
-      setPrediction(response.data.predicted_next_week_spending);
+
+      console.log("🔮 PREDICTION:", response.data);
+
+      setPrediction(response.data.predicted_next_week_spending || null);
 
     } catch (error) {
-      console.log(error);
+      console.log("❌ PREDICTION ERROR:", error);
     }
   };
 
-
+  // 🚀 Initial Load + Auto Refresh
   useEffect(() => {
     requestSMSPermission();
+
     fetchData();
     fetchNudges();
     fetchPrediction();
+
+    // 🔁 Auto refresh every 10 sec
+    const interval = setInterval(() => {
+      fetchData();
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, []);
 
-
   return (
-    <ScrollView style={{ padding: 20 }}>
-
-      <Text style={{ fontSize: 24, fontWeight: 'bold' }}>
-        Finance Dashboard
-      </Text>
-
-
-      {/* 🔥 Weekly Nudges Section */}
-      {nudges.length > 0 && (
-        <View style={{ marginTop: 20, padding: 12, backgroundColor: '#fff3cd', borderRadius: 10 }}>
-          <Text style={{ fontSize: 18, fontWeight: 'bold' }}>
-            Weekly Insights
-          </Text>
-
-          {nudges.map((nudge, index) => (
-            <Text key={index} style={{ marginTop: 6 }}>
-              {nudge}
-            </Text>
-          ))}
-
-        </View>
-      )}
-
-
-      {/* 🔮 ML Prediction Section */}
-      {prediction !== null && (
-        <View style={{ marginTop: 20, padding: 15, backgroundColor: '#eef6ff', borderRadius: 10 }}>
-          <Text style={{ fontSize: 18, fontWeight: 'bold' }}>
-            🔮 Predicted Next Week Spending
-          </Text>
-
-          <Text style={{ fontSize: 22, marginTop: 8 }}>
-            ₹ {prediction.toFixed(2)}
-          </Text>
-        </View>
-      )}
-
-
-      {/* 📊 Summary Section */}
-      {summary && (
-        <>
-          <Text style={{ fontSize: 18, marginTop: 20 }}>
-            Total Spending: ₹ {summary.total_spending}
-          </Text>
-
-          <Text style={{ fontSize: 18, marginTop: 20 }}>
-            Category Breakdown:
-          </Text>
-
-          {summary.category_breakdown.map((item, index) => (
-            <Text key={index}>
-              {item.category}: ₹ {item.amount}
-            </Text>
-          ))}
-
-        </>
-      )}
-
-
-      {/* 💳 Transactions */}
-      <Text style={{ fontSize: 20, marginTop: 30 }}>
-        Transactions
-      </Text>
-
-      {transactions.map((txn) => (
-        <View key={txn.id} style={{ marginTop: 10 }}>
-          <Text>
-            {txn.merchant} - ₹ {txn.amount}
-          </Text>
-
-          <Text style={{ color: 'gray' }}>
-            {txn.category}
-          </Text>
-        </View>
-      ))}
-
-    </ScrollView>
+    <NavigationContainer>
+      <BottomTabs
+        summary={summary}
+        transactions={transactions}
+        nudges={nudges}
+        prediction={prediction}
+        loading={loading}
+      />
+    </NavigationContainer>
   );
 }
